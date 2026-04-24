@@ -1,6 +1,6 @@
 {
   "name": "opencode-subagent-statusline",
-  "version": "0.4.0",
+  "version": "0.3.0",
   "description": "OpenCode plugin that exposes subagent session statusline state",
   "type": "module",
   "main": "./dist/tui.js",
