@@ -1216,6 +1216,7 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
   });
 
   api.slots.register({
+    order: 90,
     slots: {
       sidebar_content(ctx: SidebarContentContext) {
         const routeSessionID =
