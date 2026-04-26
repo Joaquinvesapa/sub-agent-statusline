@@ -6,10 +6,7 @@
 
 See what your subagents are doing without losing track of them: running, done, failed, elapsed time, and token/context usage when OpenCode exposes it.
 
-This package works as both:
-
-- a **TUI sidebar plugin** for OpenCode
-- a **runtime/statusline plugin** that writes state files for custom integrations
+This package works as a **TUI sidebar plugin** for OpenCode.
 
 ---
 
@@ -71,35 +68,6 @@ It also adds a small home/footer summary when there is active subagent activity.
 
 ---
 
-## Runtime/statusline mode
-
-If you also want file output for a custom statusline or external integration, add the runtime plugin to your OpenCode config:
-
-```json
-{
-  "plugin": ["opencode-subagent-statusline/runtime"]
-}
-```
-
-This writes:
-
-- `state.json` — machine-readable subagent state
-- `status.txt` — compact text output
-
-Example statusline text:
-
-```txt
-↳ 2 running · 1 done · 0 error · tests 01:23 ctx 12.4k tok · reviewer 00:41
-```
-
-By default, files are written under:
-
-```txt
-${XDG_RUNTIME_DIR ?? os.tmpdir()}/opencode-subagent-statusline/pid-${process.pid}/
-```
-
----
-
 ## Local development
 
 Install dependencies:
@@ -125,24 +93,9 @@ Test the local TUI build by pointing OpenCode directly at `dist/tui.js`:
 }
 ```
 
-For local runtime/statusline testing:
-
-```json
-{
-  "plugin": [
-    "/absolute/path/to/sub-agent-statusline/dist/index.js"
-  ]
-}
-```
-
----
-
 ## Development notes
 
-This project ships two plugin surfaces:
-
-- `src/tui.tsx` → OpenCode TUI sidebar plugin
-- `src/index.ts` → runtime/statusline file-output plugin
+This project ships the OpenCode TUI sidebar plugin from `src/tui.tsx`.
 
 The TUI bundle is built with `tsup` and `esbuild-plugin-solid` in Solid `universal` mode for OpenTUI compatibility.
 
@@ -151,7 +104,6 @@ Package entrypoints:
 ```txt
 opencode-subagent-statusline          -> TUI plugin
 opencode-subagent-statusline/tui      -> TUI plugin
-opencode-subagent-statusline/runtime  -> runtime/statusline plugin
 ```
 
 Useful commands:
