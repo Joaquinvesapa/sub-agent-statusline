@@ -152,12 +152,15 @@ function readDoneTokensFromOpenCodeDb(sessionID: string): ChildTokenState | unde
   const dbPath = resolveOpenCodeDbPath();
   if (!existsSync(dbPath)) return undefined;
 
+  // Keep JSON parsing in TypeScript instead of relying on sqlite JSON functions.
+  // Some sqlite3 builds, especially on WSL/Linux distributions, are compiled
+  // without JSON support and fail with `no such function json_extract`.
   const output = safeRead(() =>
     execFileSync(
       "sqlite3",
       [
         dbPath,
-        `select data from message where session_id='${escapeSqlString(sessionID)}' and json_extract(data, '$.tokens.total') is not null order by time_created desc;`,
+        `select data from message where session_id='${escapeSqlString(sessionID)}' order by time_created desc limit 50;`,
       ],
       { encoding: "utf8", timeout: 1000, maxBuffer: 1024 * 1024 },
     ),
