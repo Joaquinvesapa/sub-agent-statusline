@@ -49,7 +49,7 @@ const SUBAGENTS_SECTION_ENABLED_KV_KEY = "subagents.sidebar.enabled";
 const SUBAGENTS_VISIBLE_ROWS = 5;
 const SUBAGENTS_ROW_HEIGHT = 3;
 const SUBAGENTS_ROW_GAP = 1;
-const SUBAGENTS_LIST_HEIGHT =
+const SUBAGENTS_MAX_LIST_HEIGHT =
   SUBAGENTS_VISIBLE_ROWS * SUBAGENTS_ROW_HEIGHT +
   (SUBAGENTS_VISIBLE_ROWS - 1) * SUBAGENTS_ROW_GAP;
 const INACTIVE_SUBAGENT_OPACITY = 0.65;
@@ -706,6 +706,20 @@ function SidebarSubagents(props: {
     return result;
   });
 
+  const visibleChildren = createMemo(() => {
+    const ownChildren = children();
+    if (ownChildren.length > 0) return ownChildren;
+    return otherChildren();
+  });
+
+  const showingOtherSessions = createMemo(
+    () => children().length === 0 && otherChildren().length > 0,
+  );
+
+  const shouldScroll = createMemo(
+    () => visibleChildren().length > SUBAGENTS_VISIBLE_ROWS,
+  );
+
   const ChildRow = (rowProps: { child: ChildSessionState }) => {
     const child = () => rowProps.child;
     const [hovered, setHovered] = createSignal(false);
@@ -806,20 +820,30 @@ function SidebarSubagents(props: {
       <AggregateBar />
 
       <Show when={props.expanded()}>
-        <scrollbox height={SUBAGENTS_LIST_HEIGHT} scrollY>
-          <box flexDirection="column" rowGap={SUBAGENTS_ROW_GAP}>
-            <For each={children()}>
-              {(child: ChildSessionState) => <ChildRow child={child} />}
-            </For>
-
-            <Show when={children().length === 0 && otherChildren().length > 0}>
-              <text fg={props.theme.textMuted}>Other sessions</text>
-              <For each={otherChildren()}>
+        <Show
+          when={shouldScroll()}
+          fallback={
+            <box flexDirection="column" rowGap={SUBAGENTS_ROW_GAP}>
+              <Show when={showingOtherSessions()}>
+                <text fg={props.theme.textMuted}>Other sessions</text>
+              </Show>
+              <For each={visibleChildren()}>
                 {(child: ChildSessionState) => <ChildRow child={child} />}
               </For>
-            </Show>
-          </box>
-        </scrollbox>
+            </box>
+          }
+        >
+          <scrollbox height={SUBAGENTS_MAX_LIST_HEIGHT} scrollY>
+            <box flexDirection="column" rowGap={SUBAGENTS_ROW_GAP}>
+              <Show when={showingOtherSessions()}>
+                <text fg={props.theme.textMuted}>Other sessions</text>
+              </Show>
+              <For each={visibleChildren()}>
+                {(child: ChildSessionState) => <ChildRow child={child} />}
+              </For>
+            </box>
+          </scrollbox>
+        </Show>
       </Show>
     </box>
   );
