@@ -17,6 +17,7 @@ export interface ChildSessionState {
   parentID: string;
   messageID?: string;
   source?: "session" | "subtask" | "tool";
+  targetSessionID?: string;
   status: ChildStatus;
   color: "yellow" | "green" | "red";
   startedAt: string;
@@ -81,6 +82,19 @@ function sanitizeTokens(input: unknown): ChildTokenState | undefined {
   return tokens;
 }
 
+function sanitizeTargetSessionID(
+  value: unknown,
+  fallback?: string,
+): string | undefined {
+  if (typeof value === "string" && value.startsWith("ses_")) {
+    return value;
+  }
+  if (typeof fallback === "string" && fallback.startsWith("ses_")) {
+    return fallback;
+  }
+  return undefined;
+}
+
 function mergeTokens(
   existing: ChildTokenState | undefined,
   incoming: ChildTokenState | undefined,
@@ -120,12 +134,18 @@ export function refreshDerivedFields(
         ? child.status
         : "running";
 
+    const targetSessionID = sanitizeTargetSessionID(
+      child.targetSessionID,
+      id.startsWith("ses_") ? id : undefined,
+    );
+
     state.children[id] = {
       ...child,
       startedAt,
       updatedAt,
       endedAt,
       status,
+      targetSessionID,
       color: statusColor(status),
       tokens: sanitizeTokens(child.tokens),
       elapsedMs: resolveElapsedMs(
@@ -231,7 +251,7 @@ export function upsertRunningChild(
     Partial<
       Pick<
         ChildSessionState,
-        "messageID" | "source" | "startedAt" | "updatedAt"
+        "messageID" | "source" | "targetSessionID" | "startedAt" | "updatedAt"
       >
     >,
 ): boolean {
@@ -239,6 +259,10 @@ export function upsertRunningChild(
   const observedUpdatedAt = safeTimestamp(input.updatedAt, now);
   const observedStartedAt = safeTimestamp(input.startedAt, observedUpdatedAt);
   const existing = state.children[input.id];
+  const targetSessionID = sanitizeTargetSessionID(
+    input.targetSessionID ?? existing?.targetSessionID,
+    input.id.startsWith("ses_") ? input.id : undefined,
+  );
   const shouldKeepCompletedTiming =
     existing?.status === "done" || existing?.status === "error";
   const next: ChildSessionState = {
@@ -247,6 +271,7 @@ export function upsertRunningChild(
     parentID: input.parentID,
     messageID: input.messageID ?? existing?.messageID,
     source: input.source ?? existing?.source ?? "session",
+    targetSessionID,
     status: shouldKeepCompletedTiming ? existing.status : "running",
     color: statusColor(shouldKeepCompletedTiming ? existing.status : "running"),
     startedAt: existing?.startedAt ?? observedStartedAt,
@@ -295,6 +320,7 @@ export function upsertChildDetails(
   input: {
     title?: string;
     tokens?: ChildTokenState;
+    targetSessionID?: string;
     updatedAt?: string;
   },
 ): boolean {
@@ -306,10 +332,15 @@ export function upsertChildDetails(
       ? input.title
       : existing.title;
   const mergedTokens = mergeTokens(existing.tokens, input.tokens);
+  const nextTargetSessionID = sanitizeTargetSessionID(
+    input.targetSessionID ?? existing.targetSessionID,
+    existing.id.startsWith("ses_") ? existing.id : undefined,
+  );
 
   const detailsChanged =
     nextTitle !== existing.title ||
-    JSON.stringify(mergedTokens) !== JSON.stringify(existing.tokens);
+    JSON.stringify(mergedTokens) !== JSON.stringify(existing.tokens) ||
+    nextTargetSessionID !== existing.targetSessionID;
 
   const shouldTouch = existing.status === "running";
   if (!detailsChanged && !shouldTouch) return false;
@@ -320,6 +351,7 @@ export function upsertChildDetails(
     ...existing,
     title: nextTitle,
     tokens: mergedTokens,
+    targetSessionID: nextTargetSessionID,
     updatedAt: observedUpdatedAt,
   };
   state.updatedAt = observedUpdatedAt;

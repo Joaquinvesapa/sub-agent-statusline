@@ -33,6 +33,7 @@ type SubtaskChild = {
   title: string;
   parentID: string;
   messageID: string;
+  targetSessionID?: string;
   startedAt?: string;
   updatedAt?: string;
 };
@@ -40,6 +41,12 @@ type SubtaskChild = {
 type ToolChild = SubtaskChild & {
   status: "running" | "done" | "error";
   endedAt?: string;
+};
+
+type SyntheticTargetContext = {
+  id: string;
+  parentID: string;
+  messageID?: string;
 };
 
 export function asString(value: unknown): string | undefined {
@@ -88,6 +95,76 @@ export function extractSessionID(event: EventLike): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object";
+}
+
+function isSessionID(value: unknown): value is string {
+  return typeof value === "string" && value.startsWith("ses_");
+}
+
+function collectSessionIDs(input: unknown, target: Set<string>, depth = 0): void {
+  if (depth > 4 || !input) return;
+
+  if (isSessionID(input)) {
+    target.add(input);
+    return;
+  }
+
+  if (!isRecord(input) && !Array.isArray(input)) return;
+
+  if (Array.isArray(input)) {
+    for (const value of input) {
+      collectSessionIDs(value, target, depth + 1);
+    }
+    return;
+  }
+
+  for (const [key, value] of Object.entries(input)) {
+    if (!key.toLowerCase().includes("session")) continue;
+    collectSessionIDs(value, target, depth + 1);
+  }
+}
+
+function resolveSyntheticTargetSessionID(
+  state: StatuslineState,
+  synthetic: SyntheticTargetContext,
+  explicitCandidates: readonly string[] = [],
+): string | undefined {
+  const candidates = new Set<string>(explicitCandidates.filter(isSessionID));
+
+  const byMessage = Object.values(state.children).filter(
+    (child) =>
+      child.id.startsWith("ses_") &&
+      child.parentID === synthetic.parentID &&
+      child.messageID &&
+      synthetic.messageID &&
+      child.messageID === synthetic.messageID,
+  );
+  if (byMessage.length === 1) {
+    candidates.add(byMessage[0].id);
+  }
+
+  const byParent = Object.values(state.children).filter(
+    (child) => child.id.startsWith("ses_") && child.parentID === synthetic.parentID,
+  );
+  if (byParent.length === 1) {
+    candidates.add(byParent[0].id);
+  }
+
+  if (candidates.size !== 1) return undefined;
+  return [...candidates][0];
+}
+
+function extractPartTargetSessionCandidates(event: EventLike): string[] {
+  const part = isRecord(event.properties?.part) ? event.properties.part : undefined;
+  if (!part) return [];
+
+  const candidates = new Set<string>();
+  collectSessionIDs(part, candidates);
+
+  const parentSessionID = asString(part.sessionID) ?? extractSessionID(event);
+  if (parentSessionID) candidates.delete(parentSessionID);
+
+  return [...candidates];
 }
 
 function toIsoTimestamp(value: unknown): string | undefined {
@@ -154,12 +231,15 @@ function extractSubtaskChild(event: EventLike): SubtaskChild | null {
   const updatedAt =
     extractEventTimestamp(event, ["updated", "created", "started", "start"]) ??
     startedAt;
+  const targetCandidates = extractPartTargetSessionCandidates(event);
+  const targetSessionID = targetCandidates.length === 1 ? targetCandidates[0] : undefined;
 
   return {
     id: `subtask:${partID}`,
     title,
     parentID,
     messageID,
+    targetSessionID,
     startedAt,
     updatedAt,
   };
@@ -203,12 +283,15 @@ function extractToolChild(event: EventLike): ToolChild | null {
     status === "done" || status === "error"
       ? extractEventTimestamp(event, ["completed", "ended", "updated"])
       : undefined;
+  const targetCandidates = extractPartTargetSessionCandidates(event);
+  const targetSessionID = targetCandidates.length === 1 ? targetCandidates[0] : undefined;
 
   return {
     id: `tool:${partID}`,
     title,
     parentID,
     messageID,
+    targetSessionID,
     status,
     startedAt,
     updatedAt,
@@ -368,7 +451,11 @@ export function applySubagentEvent(state: StatuslineState, event: unknown): bool
     const child = extractCreatedChild(e);
     if (child) {
       const details = extractChildDetails(e);
-      let changed = upsertRunningChild(state, child);
+      let changed = upsertRunningChild(state, {
+        ...child,
+        source: "session",
+        targetSessionID: child.id,
+      });
       changed = upsertChildDetails(state, child.id, details) || changed;
       return changed;
     }
@@ -400,10 +487,20 @@ export function applySubagentEvent(state: StatuslineState, event: unknown): bool
   if (type === "message.part.updated") {
     const subtask = extractSubtaskChild(e);
     if (subtask) {
+      const targetSessionID = resolveSyntheticTargetSessionID(
+        state,
+        {
+          id: subtask.id,
+          parentID: subtask.parentID,
+          messageID: subtask.messageID,
+        },
+        subtask.targetSessionID ? [subtask.targetSessionID] : [],
+      );
       changed =
         upsertRunningChild(state, {
           ...subtask,
           source: "subtask",
+          targetSessionID,
           startedAt: subtask.startedAt,
           updatedAt: subtask.updatedAt,
         }) || changed;
@@ -411,9 +508,19 @@ export function applySubagentEvent(state: StatuslineState, event: unknown): bool
 
     const tool = extractToolChild(e);
     if (tool) {
+      const targetSessionID = resolveSyntheticTargetSessionID(
+        state,
+        {
+          id: tool.id,
+          parentID: tool.parentID,
+          messageID: tool.messageID,
+        },
+        tool.targetSessionID ? [tool.targetSessionID] : [],
+      );
       const childChanged = upsertRunningChild(state, {
         ...tool,
         source: "tool",
+        targetSessionID,
         startedAt: tool.startedAt,
         updatedAt: tool.updatedAt,
       });

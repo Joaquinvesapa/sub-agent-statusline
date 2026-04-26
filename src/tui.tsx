@@ -6,7 +6,13 @@ import type {
   TuiThemeCurrent,
 } from "@opencode-ai/plugin/tui";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+} from "node:fs";
 import { writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join } from "node:path";
@@ -28,7 +34,7 @@ import {
 
 const TUI_PLUGIN_ID = "subagent-statusline.tui";
 const ELAPSED_TICK_MS = 1000;
-const FALLBACK_SIDEBAR_WIDTH = 46;
+const FALLBACK_SIDEBAR_WIDTH = 34;
 const MIN_ROW_WIDTH = 24;
 const MIN_LABEL_WIDTH = 8;
 const DONE_TOKEN_REHYDRATE_THROTTLE_MS = 2000;
@@ -40,6 +46,13 @@ const CLOCK_ICON = "";
 const TOKEN_ICON = "";
 const SUBAGENTS_EXPANDED_KV_KEY = "subagents.sidebar.expanded";
 const SUBAGENTS_SECTION_ENABLED_KV_KEY = "subagents.sidebar.enabled";
+const SUBAGENTS_VISIBLE_ROWS = 5;
+const SUBAGENTS_ROW_HEIGHT = 3;
+const SUBAGENTS_ROW_GAP = 1;
+const SUBAGENTS_LIST_HEIGHT =
+  SUBAGENTS_VISIBLE_ROWS * SUBAGENTS_ROW_HEIGHT +
+  (SUBAGENTS_VISIBLE_ROWS - 1) * SUBAGENTS_ROW_GAP;
+const INACTIVE_SUBAGENT_OPACITY = 0.65;
 
 type SidebarContentContext = TuiSlotContext & { session_id?: string };
 type HomeBottomContext = TuiSlotContext;
@@ -132,23 +145,33 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 function tokenStateFromMessageData(data: string): ChildTokenState | undefined {
-  const parsed = safeRead(() => JSON.parse(data) as { tokens?: ChildTokenState });
+  const parsed = safeRead(
+    () => JSON.parse(data) as { tokens?: ChildTokenState },
+  );
   return parsed?.tokens;
 }
 
 function resolveOpenCodeDataDir(): string {
-  return join(process.env.XDG_DATA_HOME ?? join(os.homedir(), ".local", "share"), "opencode");
+  return join(
+    process.env.XDG_DATA_HOME ?? join(os.homedir(), ".local", "share"),
+    "opencode",
+  );
 }
 
 function resolveOpenCodeDbPath(): string {
-  return process.env.OPENCODE_SUBAGENT_STATUSLINE_OPENCODE_DB ?? join(resolveOpenCodeDataDir(), "opencode.db");
+  return (
+    process.env.OPENCODE_SUBAGENT_STATUSLINE_OPENCODE_DB ??
+    join(resolveOpenCodeDataDir(), "opencode.db")
+  );
 }
 
 function escapeSqlString(value: string): string {
   return value.replace(/'/g, "''");
 }
 
-function readDoneTokensFromOpenCodeDb(sessionID: string): ChildTokenState | undefined {
+function readDoneTokensFromOpenCodeDb(
+  sessionID: string,
+): ChildTokenState | undefined {
   const dbPath = resolveOpenCodeDbPath();
   if (!existsSync(dbPath)) return undefined;
 
@@ -173,7 +196,9 @@ function readDoneTokensFromOpenCodeDb(sessionID: string): ChildTokenState | unde
   return tokens;
 }
 
-function readDoneTokensFromOpenCodeLogs(sessionID: string): ChildTokenState | undefined {
+function readDoneTokensFromOpenCodeLogs(
+  sessionID: string,
+): ChildTokenState | undefined {
   const logDir = join(resolveOpenCodeDataDir(), "log");
   if (!existsSync(logDir)) return undefined;
 
@@ -195,7 +220,9 @@ function readDoneTokensFromOpenCodeLogs(sessionID: string): ChildTokenState | un
     for (const line of contents.split("\n")) {
       if (!line.includes(sessionID) || !line.includes('"tokens"')) continue;
       for (const match of line.matchAll(tokenPattern)) {
-        const hydrated = safeRead(() => JSON.parse(match[1] ?? "{}") as ChildTokenState);
+        const hydrated = safeRead(
+          () => JSON.parse(match[1] ?? "{}") as ChildTokenState,
+        );
         tokens = mergeTokenState(tokens, hydrated);
         if (hasTokenTotal(tokens)) return tokens;
       }
@@ -204,7 +231,9 @@ function readDoneTokensFromOpenCodeLogs(sessionID: string): ChildTokenState | un
   return tokens;
 }
 
-function rehydrateDoneChildTokens(child: ChildSessionState): ChildTokenState | undefined {
+function rehydrateDoneChildTokens(
+  child: ChildSessionState,
+): ChildTokenState | undefined {
   if (child.status !== "done") return undefined;
   if (hasTokenTotal(child.tokens)) return undefined;
   if (!child.id.startsWith("ses_")) return undefined;
@@ -212,21 +241,16 @@ function rehydrateDoneChildTokens(child: ChildSessionState): ChildTokenState | u
   const nowMs = Date.now();
   const cached = doneTokenCache.get(child.id);
   if (cached?.tokens) return cached.tokens;
-  if (
-    cached &&
-    cached.attempts >= DONE_TOKEN_REHYDRATE_MAX_ATTEMPTS
-  ) {
+  if (cached && cached.attempts >= DONE_TOKEN_REHYDRATE_MAX_ATTEMPTS) {
     return undefined;
   }
-  if (
-    cached &&
-    nowMs - cached.checkedAtMs < DONE_TOKEN_REHYDRATE_THROTTLE_MS
-  ) {
+  if (cached && nowMs - cached.checkedAtMs < DONE_TOKEN_REHYDRATE_THROTTLE_MS) {
     return undefined;
   }
 
   const tokens =
-    readDoneTokensFromOpenCodeDb(child.id) ?? readDoneTokensFromOpenCodeLogs(child.id);
+    readDoneTokensFromOpenCodeDb(child.id) ??
+    readDoneTokensFromOpenCodeLogs(child.id);
   doneTokenCache.set(child.id, {
     attempts: (cached?.attempts ?? 0) + 1,
     checkedAtMs: nowMs,
@@ -291,10 +315,14 @@ function hydrateChildTokensFromTuiState(
   pushSessionCandidates(api, child.id, candidates);
 
   if (child.messageID) {
-    const parentParts = safeRead(() => api.state.part(child.messageID as string));
+    const parentParts = safeRead(() =>
+      api.state.part(child.messageID as string),
+    );
     if (parentParts) candidates.push(parentParts);
 
-    const parentMessages = safeRead(() => api.state.session.messages(child.parentID));
+    const parentMessages = safeRead(() =>
+      api.state.session.messages(child.parentID),
+    );
     const parentMessage = parentMessages?.find(
       (message) => messageIDOf(message) === child.messageID,
     );
@@ -305,7 +333,9 @@ function hydrateChildTokensFromTuiState(
   for (const candidate of candidates) {
     tokens = mergeTokenState(
       tokens,
-      extractChildDetails(candidate as Parameters<typeof extractChildDetails>[0]).tokens,
+      extractChildDetails(
+        candidate as Parameters<typeof extractChildDetails>[0],
+      ).tokens,
     );
   }
 
@@ -345,7 +375,11 @@ function hydrateStateTokensFromTuiState(
   return changed;
 }
 
-function persistStateSnapshot(statePath: string, textPath: string, state: StatuslineState): void {
+function persistStateSnapshot(
+  statePath: string,
+  textPath: string,
+  state: StatuslineState,
+): void {
   const snapshot = cloneState(state);
   void (async () => {
     try {
@@ -396,13 +430,97 @@ function relatedTitles(a: string, b: string): boolean {
   return left.includes(right) || right.includes(left);
 }
 
+function isSessionTarget(value: unknown): value is string {
+  return typeof value === "string" && value.startsWith("ses_");
+}
+
+function resolveChildTargetSessionID(
+  child: ChildSessionState,
+): string | undefined {
+  if (isSessionTarget(child.targetSessionID)) {
+    return child.targetSessionID;
+  }
+  if (child.id.startsWith("ses_")) {
+    return child.id;
+  }
+  return undefined;
+}
+
+function resolveSyntheticTargetFromHydratedState(
+  state: StatuslineState,
+  synthetic: ChildSessionState,
+): string | undefined {
+  const messageMatches = Object.values(state.children).filter(
+    (candidate) =>
+      candidate.id.startsWith("ses_") &&
+      candidate.parentID === synthetic.parentID &&
+      synthetic.messageID &&
+      candidate.messageID === synthetic.messageID,
+  );
+  if (messageMatches.length === 1) return messageMatches[0].id;
+
+  const parentMatches = Object.values(state.children).filter(
+    (candidate) =>
+      candidate.id.startsWith("ses_") &&
+      candidate.parentID === synthetic.parentID,
+  );
+  if (parentMatches.length === 1) return parentMatches[0].id;
+
+  return undefined;
+}
+
+function backfillHydratedTargetSessionIDs(
+  state: StatuslineState,
+  parentSessionID: string,
+): boolean {
+  let changed = false;
+
+  for (const child of Object.values(state.children)) {
+    if (child.parentID !== parentSessionID) continue;
+    if (resolveChildTargetSessionID(child)) continue;
+    if (child.source === "session" || child.id.startsWith("ses_")) {
+      child.targetSessionID = child.id;
+      changed = true;
+      continue;
+    }
+
+    const syntheticTarget = resolveSyntheticTargetFromHydratedState(
+      state,
+      child,
+    );
+    if (syntheticTarget) {
+      child.targetSessionID = syntheticTarget;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    state.updatedAt = new Date().toISOString();
+  }
+
+  return changed;
+}
+
+function navigateToSessionTarget(
+  api: TuiPluginApi,
+  targetSessionID: string | undefined,
+): void {
+  if (!isSessionTarget(targetSessionID)) return;
+
+  // Verified against local typings in `@opencode-ai/plugin/dist/tui.d.ts`:
+  // api.route.navigate(name: string, params?: Record<string, unknown>)
+  api.route.navigate("session", { sessionID: targetSessionID });
+}
+
 function isGenericToolWrapper(child: ChildSessionState): boolean {
   if (child.source !== "tool") return false;
   const title = normalizeTitle(child.title);
   return title === "delegate" || title === "task";
 }
 
-function collapseToolWrappers(children: ChildSessionState[]): ChildSessionState[] {
+function collapseToolWrappers(
+  children: ChildSessionState[],
+): ChildSessionState[] {
   const realChildren = children.filter((child) => child.source !== "tool");
   return children.filter((child) => {
     if (child.source !== "tool") return true;
@@ -414,7 +532,8 @@ function collapseToolWrappers(children: ChildSessionState[]): ChildSessionState[
     }
     return !realChildren.some(
       (real) =>
-        real.parentID === child.parentID && relatedTitles(real.title, child.title),
+        real.parentID === child.parentID &&
+        relatedTitles(real.title, child.title),
     );
   });
 }
@@ -511,7 +630,8 @@ function contextVariants(child: ChildSessionState): string[] {
 
 function rowWidthBudget(sidebarWidth: number | undefined): number {
   const width = sidebarWidth ?? FALLBACK_SIDEBAR_WIDTH;
-  return Math.max(MIN_ROW_WIDTH, Math.min(width, 120));
+  const innerWidth = width - 4;
+  return Math.max(MIN_ROW_WIDTH, Math.min(innerWidth, 52));
 }
 
 function formatChildRowLine(input: {
@@ -525,7 +645,10 @@ function formatChildRowLine(input: {
 
   for (const meta of contextVariants(input.child)) {
     const detailChars = 2 + elapsed.length + (meta ? 3 + meta.length : 0);
-    const labelBudget = Math.min(width - 2, width - Math.max(0, detailChars - width));
+    const labelBudget = Math.min(
+      width - 2,
+      width - Math.max(0, detailChars - width),
+    );
     if (labelBudget >= MIN_LABEL_WIDTH || meta.length === 0) {
       return {
         label: ellipsize(title.label, Math.max(1, labelBudget)),
@@ -545,6 +668,7 @@ function formatChildRowLine(input: {
 }
 
 function SidebarSubagents(props: {
+  api: TuiPluginApi;
   sessionID: string;
   state: () => StatuslineState;
   nowMs: () => number;
@@ -581,6 +705,21 @@ function SidebarSubagents(props: {
 
   const ChildRow = (rowProps: { child: ChildSessionState }) => {
     const child = () => rowProps.child;
+    const [hovered, setHovered] = createSignal(false);
+    const [focused, setFocused] = createSignal(false);
+    const targetSessionID = createMemo(() =>
+      resolveChildTargetSessionID(child()),
+    );
+    const clickable = createMemo(() => isSessionTarget(targetSessionID()));
+    const emphasized = createMemo(
+      () => clickable() && (hovered() || focused()),
+    );
+    const muted = createMemo(
+      () => child().status !== "running" && clickable() && !emphasized(),
+    );
+    const rowOpacity = createMemo(() =>
+      child().status === "running" ? 1 : INACTIVE_SUBAGENT_OPACITY,
+    );
     const line = createMemo(() =>
       formatChildRowLine({
         child: child(),
@@ -588,24 +727,56 @@ function SidebarSubagents(props: {
         sidebarWidth: props.sidebarWidth?.(),
       }),
     );
+    const activate = () =>
+      navigateToSessionTarget(props.api, targetSessionID());
+    const handleKeyDown = (event: { name: string }): void => {
+      if (!clickable()) return;
+      setFocused(true);
+      if (event.name === "return" || event.name === "space") {
+        activate();
+      }
+    };
 
     return (
-      <box flexDirection="column">
+      <box
+        flexDirection="column"
+        height={line().parenthetical ? SUBAGENTS_ROW_HEIGHT : SUBAGENTS_ROW_HEIGHT - 1}
+        opacity={rowOpacity()}
+        onMouseOver={clickable() ? () => setHovered(true) : undefined}
+        onMouseOut={
+          clickable()
+            ? () => {
+                setHovered(false);
+                setFocused(false);
+              }
+            : undefined
+        }
+        onMouseDown={clickable() ? activate : undefined}
+        onKeyDown={clickable() ? handleKeyDown : undefined}
+        focusable={clickable()}
+        focused={clickable() && focused()}
+      >
         <box flexDirection="row">
           <text fg={statusColor(child().status, props.theme)}>
             {statusIcon(child().status)}
           </text>
-          <text fg={props.theme.text}>{` ${line().label}`}</text>
+          <text
+            fg={muted() ? props.theme.textMuted : props.theme.text}
+          >{` ${line().label}`}</text>
         </box>
         <Show when={line().parenthetical}>
           {(parenthetical: Accessor<string>) => (
-            <text fg={props.theme.textMuted}>{`  ${parenthetical()}`}</text>
+            <text fg={emphasized() ? props.theme.text : props.theme.textMuted}>{`  ${parenthetical()}`}</text>
           )}
         </Show>
         <box flexDirection="row" paddingLeft={2}>
-          <text fg={props.theme.textMuted}>{`${CLOCK_ICON} ${line().elapsed}`}</text>
+          <text
+            fg={emphasized() ? props.theme.text : props.theme.textMuted}
+          >{`${CLOCK_ICON} ${line().elapsed}`}</text>
           <Show when={line().meta.length > 0}>
-            <text fg={props.theme.textMuted}>{` ${TOKEN_ICON} ${line().meta}`}</text>
+            <text
+              fg={emphasized() ? props.theme.text : props.theme.textMuted}
+            >{` ${TOKEN_ICON} ${line().meta}`}</text>
           </Show>
         </box>
       </box>
@@ -632,18 +803,20 @@ function SidebarSubagents(props: {
       <AggregateBar />
 
       <Show when={props.expanded()}>
-        <box flexDirection="column">
-          <For each={children()}>
-            {(child: ChildSessionState) => <ChildRow child={child} />}
-          </For>
-
-          <Show when={children().length === 0 && otherChildren().length > 0}>
-            <text fg={props.theme.textMuted}>Other sessions</text>
-            <For each={otherChildren()}>
+        <scrollbox height={SUBAGENTS_LIST_HEIGHT} scrollY>
+          <box flexDirection="column" rowGap={SUBAGENTS_ROW_GAP}>
+            <For each={children()}>
               {(child: ChildSessionState) => <ChildRow child={child} />}
             </For>
-          </Show>
-        </box>
+
+            <Show when={children().length === 0 && otherChildren().length > 0}>
+              <text fg={props.theme.textMuted}>Other sessions</text>
+              <For each={otherChildren()}>
+                {(child: ChildSessionState) => <ChildRow child={child} />}
+              </For>
+            </Show>
+          </box>
+        </scrollbox>
       </Show>
     </box>
   );
@@ -654,9 +827,7 @@ function HomeBottomStatus(props: {
   theme: TuiThemeCurrent;
 }) {
   const counts = createMemo(() => getCounts(props.state()));
-  const visible = createMemo(
-    () => counts().running > 0 || counts().error > 0,
-  );
+  const visible = createMemo(() => counts().running > 0 || counts().error > 0);
 
   return (
     <Show when={visible()}>
@@ -679,7 +850,7 @@ async function hydratePreviousSubagents(
   statePath: string,
   textPath: string,
   setState: (fn: (prev: StatuslineState) => StatuslineState) => void,
-) : Promise<boolean> {
+): Promise<boolean> {
   if (!currentSessionID) return false;
 
   try {
@@ -690,24 +861,32 @@ async function hydratePreviousSubagents(
 
     const [childrenResp, messagesResp, statusResp] = await Promise.all([
       (async () => {
-        const response = await safeReadAsync(() =>
-          sessionClient?.children?.({ sessionID: currentSessionID, directory }) ??
-            Promise.resolve({ data: [] }),
+        const response = await safeReadAsync(
+          () =>
+            sessionClient?.children?.({
+              sessionID: currentSessionID,
+              directory,
+            }) ?? Promise.resolve({ data: [] }),
         );
         if (!response) topLevelHydrationFailed = true;
         return response;
       })(),
       (async () => {
-        const response = await safeReadAsync(() =>
-          sessionClient?.messages?.({ sessionID: currentSessionID, directory }) ??
-            Promise.resolve({ data: [] }),
+        const response = await safeReadAsync(
+          () =>
+            sessionClient?.messages?.({
+              sessionID: currentSessionID,
+              directory,
+            }) ?? Promise.resolve({ data: [] }),
         );
         if (!response) topLevelHydrationFailed = true;
         return response;
       })(),
       (async () => {
-        const response = await safeReadAsync(() =>
-          sessionClient?.status?.({ directory }) ?? Promise.resolve({ data: {} }),
+        const response = await safeReadAsync(
+          () =>
+            sessionClient?.status?.({ directory }) ??
+            Promise.resolve({ data: {} }),
         );
         if (!response) {
           topLevelHydrationFailed = true;
@@ -724,7 +903,8 @@ async function hydratePreviousSubagents(
     const childMessageResults = await Promise.all(
       children.map(async (child) => {
         const session = asRecord(child);
-        const childID = typeof session?.id === "string" ? session.id : undefined;
+        const childID =
+          typeof session?.id === "string" ? session.id : undefined;
         if (!childID) {
           return {
             childID: undefined,
@@ -734,8 +914,9 @@ async function hydratePreviousSubagents(
             fetchFailed: false,
           };
         }
-        const childMessagesResp = await safeReadAsync(() =>
-          sessionClient?.messages?.({ sessionID: childID, directory }) ??
+        const childMessagesResp = await safeReadAsync(
+          () =>
+            sessionClient?.messages?.({ sessionID: childID, directory }) ??
             Promise.resolve({ data: [] }),
         );
         let fetchFailed = false;
@@ -746,7 +927,11 @@ async function hydratePreviousSubagents(
         const childMessages = Array.isArray(childMessagesResp?.data)
           ? childMessagesResp.data
           : [];
-        return { childID, ...summarizeAssistantMessages(childMessages), fetchFailed };
+        return {
+          childID,
+          ...summarizeAssistantMessages(childMessages),
+          fetchFailed,
+        };
       }),
     );
     const childMessageSummaryByID = new Map(
@@ -777,21 +962,29 @@ async function hydratePreviousSubagents(
         const explicitCompletionEvidence =
           !!childSummary &&
           !childSummary.fetchFailed &&
-          (typeof childSummary.completedAt === "string" || childSummary.hasError);
-        const fallbackEndedAt = childSummary?.completedAt ?? childSummary?.evidenceAt;
+          (typeof childSummary.completedAt === "string" ||
+            childSummary.hasError);
+        const fallbackEndedAt =
+          childSummary?.completedAt ?? childSummary?.evidenceAt;
         const statusEndedAt =
           fallbackEndedAt ??
           sessionTimestamp(session, "completed") ??
           sessionTimestamp(session, "updated");
 
         if (sessionStatus === "done" || sessionStatus === "error") {
-          if (markChildStatus(next, session.id, sessionStatus, statusEndedAt)) changed = true;
+          if (markChildStatus(next, session.id, sessionStatus, statusEndedAt))
+            changed = true;
           continue;
         }
 
-        if (!sessionStatus && !statusHydrationFailed && explicitCompletionEvidence) {
+        if (
+          !sessionStatus &&
+          !statusHydrationFailed &&
+          explicitCompletionEvidence
+        ) {
           const childStatus = childSummary?.hasError ? "error" : "done";
-          if (markChildStatus(next, session.id, childStatus, fallbackEndedAt)) changed = true;
+          if (markChildStatus(next, session.id, childStatus, fallbackEndedAt))
+            changed = true;
         }
       }
 
@@ -818,7 +1011,8 @@ async function hydratePreviousSubagents(
                 : part;
           if (
             part.type === "subtask" ||
-            (part.type === "tool" && (part.tool === "delegate" || part.tool === "task"))
+            (part.type === "tool" &&
+              (part.tool === "delegate" || part.tool === "task"))
           ) {
             const fakeEvent = {
               type: "message.part.updated",
@@ -833,10 +1027,15 @@ async function hydratePreviousSubagents(
             if (part.type === "subtask" && isAssistant && isCompleted) {
               const childID = `subtask:${part.id}`;
               const status = hasError ? "error" : "done";
-              if (markChildStatus(next, childID, status, completedAt)) changed = true;
+              if (markChildStatus(next, childID, status, completedAt))
+                changed = true;
             }
           }
         }
+      }
+
+      if (backfillHydratedTargetSessionIDs(next, currentSessionID)) {
+        changed = true;
       }
 
       if (!changed) return current;
@@ -846,12 +1045,18 @@ async function hydratePreviousSubagents(
     if (topLevelHydrationFailed || childHydrationFailed) return false;
     return true;
   } catch (err) {
-    debugLog({ kind: "hydration.error", sessionID: currentSessionID, error: String(err) });
+    debugLog({
+      kind: "hydration.error",
+      sessionID: currentSessionID,
+      error: String(err),
+    });
     return false;
   }
 }
 
-async function safeReadAsync<Value>(read: () => Promise<Value>): Promise<Value | undefined> {
+async function safeReadAsync<Value>(
+  read: () => Promise<Value>,
+): Promise<Value | undefined> {
   try {
     return await read();
   } catch {
@@ -886,17 +1091,39 @@ function deriveSessionChildStatus(
 
   if (
     values.some((value) =>
-      ["error", "failed", "failure", "cancelled", "canceled", "aborted"].includes(value),
+      [
+        "error",
+        "failed",
+        "failure",
+        "cancelled",
+        "canceled",
+        "aborted",
+      ].includes(value),
     )
   ) {
     return "error";
   }
 
-  if (values.some((value) => ["busy", "running", "pending", "queued", "in_progress"].includes(value))) {
+  if (
+    values.some((value) =>
+      ["busy", "running", "pending", "queued", "in_progress"].includes(value),
+    )
+  ) {
     return "running";
   }
 
-  if (values.some((value) => ["done", "completed", "complete", "success", "succeeded", "idle"].includes(value))) {
+  if (
+    values.some((value) =>
+      [
+        "done",
+        "completed",
+        "complete",
+        "success",
+        "succeeded",
+        "idle",
+      ].includes(value),
+    )
+  ) {
     return "done";
   }
 
@@ -949,7 +1176,10 @@ function messageTimeMillis(info: Record<string, unknown> | undefined): number {
   );
 }
 
-function sessionTimestamp(session: Record<string, unknown>, key: string): string | undefined {
+function sessionTimestamp(
+  session: Record<string, unknown>,
+  key: string,
+): string | undefined {
   const time = asRecord(session.time);
   return timestampFromUnknown(time?.[key]);
 }
@@ -977,10 +1207,17 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
   const textPath = resolveTextPath(statePath);
   const [state, setState] = createSignal<StatuslineState>(createEmptyState());
   const [nowMs, setNowMs] = createSignal(Date.now());
-  const [hydratedSessions, setHydratedSessions] = createSignal<Set<string>>(new Set());
-  const [hydratingSessions, setHydratingSessions] = createSignal<Set<string>>(new Set());
-  const [hydrateRetryPendingSessions, setHydrateRetryPendingSessions] = createSignal<Set<string>>(new Set());
-  const [hydrateRetryAttempts, setHydrateRetryAttempts] = createSignal<Map<string, number>>(new Map());
+  const [hydratedSessions, setHydratedSessions] = createSignal<Set<string>>(
+    new Set(),
+  );
+  const [hydratingSessions, setHydratingSessions] = createSignal<Set<string>>(
+    new Set(),
+  );
+  const [hydrateRetryPendingSessions, setHydrateRetryPendingSessions] =
+    createSignal<Set<string>>(new Set());
+  const [hydrateRetryAttempts, setHydrateRetryAttempts] = createSignal<
+    Map<string, number>
+  >(new Map());
   const [hydrateRetryTick, setHydrateRetryTick] = createSignal(0);
   const [subagentsExpanded, setSubagentsExpanded] = createSignal(
     api.kv.get<boolean>(SUBAGENTS_EXPANDED_KV_KEY, true) !== false,
@@ -1006,7 +1243,9 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
     api.kv.set(SUBAGENTS_SECTION_ENABLED_KV_KEY, enabled);
     api.ui.toast({
       variant: "info",
-      message: enabled ? "Subagent section enabled" : "Subagent section disabled",
+      message: enabled
+        ? "Subagent section enabled"
+        : "Subagent section disabled",
     });
   };
 
@@ -1235,6 +1474,7 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
         return (
           <Show when={subagentsSectionEnabled()}>
             <SidebarSubagents
+              api={api}
               sessionID={sessionID}
               state={state}
               nowMs={nowMs}
