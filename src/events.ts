@@ -17,6 +17,8 @@ export type EventLike = {
       id?: unknown;
       title?: unknown;
       name?: unknown;
+      agent?: unknown;
+      subagent_type?: unknown;
       sessionID?: unknown;
       sessionId?: unknown;
       parentID?: unknown;
@@ -31,6 +33,8 @@ export type EventLike = {
 type SubtaskChild = {
   id: string;
   title: string;
+  summary?: string;
+  agentName?: string;
   parentID: string;
   messageID: string;
   targetSessionID?: string;
@@ -53,9 +57,36 @@ export function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function conciseText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+  return text.length > 180 ? `${text.slice(0, 179)}…` : text;
+}
+
+function sameDisplayText(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  return (
+    a.replace(/\s+/g, " ").trim().toLowerCase() ===
+    b.replace(/\s+/g, " ").trim().toLowerCase()
+  );
+}
+
+function firstDistinctSummary(
+  candidates: unknown[],
+  title: string | undefined,
+): string | undefined {
+  for (const candidate of candidates) {
+    const summary = conciseText(candidate);
+    if (summary && !sameDisplayText(summary, title)) return summary;
+  }
+  return undefined;
+}
+
 export function extractCreatedChild(event: EventLike): {
   id: string;
   title: string;
+  agentName?: string;
   parentID: string;
   startedAt?: string;
   updatedAt?: string;
@@ -68,6 +99,7 @@ export function extractCreatedChild(event: EventLike): {
   if (!id) return null;
 
   const title = asString(info?.title) ?? "subagent";
+  const agentName = asString(info?.agent) ?? asString(info?.subagent_type);
   const startedAt = extractEventTimestamp(event, [
     "started",
     "start",
@@ -77,7 +109,7 @@ export function extractCreatedChild(event: EventLike): {
   const updatedAt =
     extractEventTimestamp(event, ["updated", "created", "started", "start"]) ??
     startedAt;
-  return { id, title, parentID, startedAt, updatedAt };
+  return { id, title, agentName, parentID, startedAt, updatedAt };
 }
 
 export function extractSessionID(event: EventLike): string | undefined {
@@ -222,6 +254,12 @@ function extractSubtaskChild(event: EventLike): SubtaskChild | null {
   const command = asString(part.command);
   const agent = asString(part.agent);
   const title = description || command || agent || "subtask";
+  const state = isRecord(part.state) ? part.state : undefined;
+  const input = isRecord(state?.input) ? state.input : undefined;
+  const summary = firstDistinctSummary(
+    [input?.prompt, input?.description, part.description, state?.description],
+    title,
+  );
   const startedAt = extractEventTimestamp(event, [
     "started",
     "start",
@@ -237,6 +275,8 @@ function extractSubtaskChild(event: EventLike): SubtaskChild | null {
   return {
     id: `subtask:${partID}`,
     title,
+    summary,
+    agentName: agent,
     parentID,
     messageID,
     targetSessionID,
@@ -270,6 +310,10 @@ function extractToolChild(event: EventLike): ToolChild | null {
   const description = asString(input.description);
   const subagentType = asString(input.subagent_type);
   const title = asString(state.title) || description || subagentType || tool;
+  const summary = firstDistinctSummary(
+    [input.prompt, input.description, part.description, state.description],
+    title,
+  );
   const startedAt = extractEventTimestamp(event, [
     "started",
     "start",
@@ -289,6 +333,8 @@ function extractToolChild(event: EventLike): ToolChild | null {
   return {
     id: `tool:${partID}`,
     title,
+    summary,
+    agentName: subagentType,
     parentID,
     messageID,
     targetSessionID,
@@ -349,11 +395,15 @@ function normalizePercent(value: number): number {
 
 export function extractChildDetails(event: EventLike): {
   title?: string;
+  summary?: string;
+  agentName?: string;
   tokens?: ChildTokenState;
   updatedAt?: string;
 } {
   const details: {
     title?: string;
+    summary?: string;
+    agentName?: string;
     tokens?: ChildTokenState;
     updatedAt?: string;
   } = {};
@@ -382,6 +432,25 @@ export function extractChildDetails(event: EventLike): {
       break;
     }
   }
+
+  const part = isRecord(event.properties?.part) ? event.properties.part : undefined;
+  const partState = isRecord(part?.state) ? part.state : undefined;
+  const partInput = isRecord(partState?.input) ? partState.input : undefined;
+  details.agentName =
+    asString(partInput?.subagent_type) ??
+    asString(partInput?.agent) ??
+    asString(part?.agent) ??
+    asString(event.properties?.info?.agent) ??
+    asString(event.properties?.info?.subagent_type);
+  details.summary = firstDistinctSummary(
+    [
+      partInput?.prompt,
+      partInput?.description,
+      part?.description,
+      partState?.description,
+    ],
+    details.title,
+  );
 
   const tokenHints: ChildTokenState = {};
   const visited = new Set<object>();

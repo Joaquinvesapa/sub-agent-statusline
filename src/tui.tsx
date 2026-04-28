@@ -5,6 +5,7 @@ import type {
   TuiSlotContext,
   TuiThemeCurrent,
 } from "@opencode-ai/plugin/tui";
+import type { ScrollBoxRenderable } from "@opentui/core";
 import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
@@ -16,7 +17,14 @@ import {
 import { writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join } from "node:path";
-import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+} from "solid-js";
 import type { Accessor } from "solid-js";
 import { applySubagentEvent, extractChildDetails } from "./events.js";
 import { byPriority, formatDuration, renderStatusLine } from "./render.js";
@@ -48,11 +56,34 @@ const SUBAGENTS_EXPANDED_KV_KEY = "subagents.sidebar.expanded";
 const SUBAGENTS_SECTION_ENABLED_KV_KEY = "subagents.sidebar.enabled";
 const SUBAGENTS_VISIBLE_ROWS = 5;
 const SUBAGENTS_ROW_HEIGHT = 3;
-const SUBAGENTS_ROW_GAP = 1;
+const SUBAGENTS_ROW_GAP = 0;
 const SUBAGENTS_MAX_LIST_HEIGHT =
   SUBAGENTS_VISIBLE_ROWS * SUBAGENTS_ROW_HEIGHT +
   (SUBAGENTS_VISIBLE_ROWS - 1) * SUBAGENTS_ROW_GAP;
 const INACTIVE_SUBAGENT_OPACITY = 0.65;
+
+interface SidebarScrollRegistration {
+  getScrollbox: () => ScrollBoxRenderable | undefined;
+  offsetTop: number;
+}
+
+const sidebarScrollRegistrations = new Set<SidebarScrollRegistration>();
+
+function maxScrollTop(scrollbox: ScrollBoxRenderable): number {
+  return Math.max(0, scrollbox.scrollHeight - scrollbox.viewport.height);
+}
+
+function clampedScrollTop(scrollbox: ScrollBoxRenderable, value: number): number {
+  return Math.max(0, Math.min(value, maxScrollTop(scrollbox)));
+}
+
+function snapshotSidebarScrollOffsets(): void {
+  for (const registration of sidebarScrollRegistrations) {
+    const scrollbox = registration.getScrollbox();
+    if (!scrollbox) continue;
+    registration.offsetTop = clampedScrollTop(scrollbox, scrollbox.scrollTop);
+  }
+}
 
 type SidebarContentContext = TuiSlotContext & { session_id?: string };
 type HomeBottomContext = TuiSlotContext;
@@ -403,10 +434,10 @@ function elapsedMs(child: ChildSessionState, nowMs: number): number {
   return Math.max(0, nowMs - started);
 }
 
-function statusIcon(status: ChildSessionState["status"]): string {
-  if (status === "done") return "✓";
-  if (status === "error") return "✕";
-  return "●";
+function taskStatusMarker(status: ChildSessionState["status"]): string {
+  if (status === "done") return "[✓]";
+  if (status === "error") return "[x]";
+  return "[ ]";
 }
 
 function statusColor(
@@ -524,17 +555,30 @@ function isGenericToolWrapper(child: ChildSessionState): boolean {
 function collapseToolWrappers(
   children: ChildSessionState[],
 ): ChildSessionState[] {
-  const realChildren = children.filter((child) => child.source !== "tool");
+  const syntheticChildren = children.filter(
+    (child) => child.source === "tool" || child.source === "subtask",
+  );
   return children.filter((child) => {
-    if (child.source !== "tool") return true;
-    if (
-      isGenericToolWrapper(child) &&
-      realChildren.some((real) => real.parentID === child.parentID)
-    ) {
-      return false;
+    if (child.source === "session") {
+      return !syntheticChildren.some(
+        (synthetic) =>
+          synthetic.targetSessionID === child.id ||
+          (synthetic.parentID === child.parentID &&
+            synthetic.messageID &&
+            synthetic.messageID === child.messageID),
+      );
     }
-    return !realChildren.some(
+
+    if (child.source !== "tool") return true;
+    if (isGenericToolWrapper(child)) {
+      return !syntheticChildren.some(
+        (synthetic) =>
+          synthetic.id !== child.id && synthetic.parentID === child.parentID,
+      );
+    }
+    return !syntheticChildren.some(
       (real) =>
+        real.id !== child.id &&
         real.parentID === child.parentID &&
         relatedTitles(real.title, child.title),
     );
@@ -589,6 +633,36 @@ function splitParentheticalTitle(title: string): {
   return { label, parenthetical };
 }
 
+function childParenthetical(child: ChildSessionState): string | undefined {
+  if (child.agentName?.trim()) return `(${child.agentName.trim()})`;
+
+  const primary = splitParentheticalTitle(childPrimaryText(child));
+  if (primary.parenthetical) return primary.parenthetical;
+
+  return splitParentheticalTitle(child.title).parenthetical;
+}
+
+function formatSecondaryLine(
+  continuation: string | undefined,
+  parenthetical: string | undefined,
+  width: number,
+): string | undefined {
+  if (!continuation) return parenthetical;
+  if (!parenthetical) return continuation;
+
+  const parentheticalWidth = Math.min(parenthetical.length, width);
+  const continuationWidth = width - parentheticalWidth - 1;
+  if (continuationWidth >= MIN_LABEL_WIDTH) {
+    return `${ellipsize(continuation, continuationWidth)} ${ellipsize(parenthetical, parentheticalWidth)}`;
+  }
+
+  return ellipsize(parenthetical, width);
+}
+
+function childPrimaryText(child: ChildSessionState): string {
+  return child.summary?.trim() || child.title;
+}
+
 function resolveTokenTotal(child: ChildSessionState): number | undefined {
   const total = child.tokens?.total;
   if (typeof total === "number" && Number.isFinite(total)) {
@@ -637,14 +711,51 @@ function rowWidthBudget(sidebarWidth: number | undefined): number {
   return Math.max(MIN_ROW_WIDTH, Math.min(innerWidth, 52));
 }
 
+function wrapCompactText(
+  value: string,
+  width: number,
+  maxLines: number,
+): string[] {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) return [""];
+
+  const lines: string[] = [];
+  let remaining = normalized;
+
+  while (remaining.length > width && lines.length < maxLines - 1) {
+    const slice = remaining.slice(0, width + 1);
+    const breakAt = slice.lastIndexOf(" ");
+    const take = breakAt >= MIN_LABEL_WIDTH ? breakAt : width;
+    lines.push(remaining.slice(0, take).trimEnd());
+    remaining = remaining.slice(take).trimStart();
+  }
+
+  lines.push(
+    lines.length === maxLines - 1
+      ? ellipsize(remaining, Math.max(1, width))
+      : remaining,
+  );
+  return lines;
+}
+
 function formatChildRowLine(input: {
   child: ChildSessionState;
   nowMs: number;
   sidebarWidth?: number;
-}): { label: string; parenthetical?: string; elapsed: string; meta: string } {
+  reservedWidth?: number;
+}): {
+  labelLines: string[];
+  secondaryLine?: string;
+  elapsed: string;
+  meta: string;
+} {
   const elapsed = formatDuration(elapsedMs(input.child, input.nowMs));
-  const width = rowWidthBudget(input.sidebarWidth);
-  const title = splitParentheticalTitle(input.child.title);
+  const width = Math.max(
+    MIN_ROW_WIDTH,
+    rowWidthBudget(input.sidebarWidth) - (input.reservedWidth ?? 0),
+  );
+  const title = splitParentheticalTitle(childPrimaryText(input.child));
+  const parenthetical = childParenthetical(input.child);
 
   for (const meta of contextVariants(input.child)) {
     const detailChars = 2 + elapsed.length + (meta ? 3 + meta.length : 0);
@@ -653,18 +764,24 @@ function formatChildRowLine(input: {
       width - Math.max(0, detailChars - width),
     );
     if (labelBudget >= MIN_LABEL_WIDTH || meta.length === 0) {
+      const labelLines = wrapCompactText(title.label, Math.max(1, labelBudget), 2);
       return {
-        label: ellipsize(title.label, Math.max(1, labelBudget)),
-        parenthetical: title.parenthetical,
+        labelLines,
+        secondaryLine: formatSecondaryLine(
+          labelLines[1],
+          parenthetical,
+          Math.max(1, labelBudget),
+        ),
         elapsed,
         meta,
       };
     }
   }
 
+  const labelLines = wrapCompactText(title.label, MIN_LABEL_WIDTH, 2);
   return {
-    label: ellipsize(title.label, MIN_LABEL_WIDTH),
-    parenthetical: title.parenthetical,
+    labelLines,
+    secondaryLine: formatSecondaryLine(labelLines[1], parenthetical, MIN_LABEL_WIDTH),
     elapsed,
     meta: "",
   };
@@ -716,34 +833,94 @@ function SidebarSubagents(props: {
     () => children().length === 0 && otherChildren().length > 0,
   );
 
-  const shouldScroll = createMemo(
-    () => visibleChildren().length > SUBAGENTS_VISIBLE_ROWS,
+  const visibleChildIDs = createMemo(() =>
+    visibleChildren().map((child) => child.id),
   );
 
-  const ChildRow = (rowProps: { child: ChildSessionState }) => {
-    const child = () => rowProps.child;
+  const visibleChildLayoutSignature = createMemo(() =>
+    visibleChildren()
+      .map((child) =>
+        JSON.stringify([
+          child.id,
+          child.status,
+          child.title,
+          child.summary ?? "",
+          child.agentName ?? "",
+          child.tokens?.input ?? "",
+          child.tokens?.output ?? "",
+          child.tokens?.total ?? "",
+          child.tokens?.contextPercent ?? "",
+        ]),
+      )
+      .join("|"),
+  );
+
+  let scrollbox: ScrollBoxRenderable | undefined;
+  let restoreScrollTimeout: ReturnType<typeof setTimeout> | undefined;
+  const scrollRegistration: SidebarScrollRegistration = {
+    getScrollbox: () => scrollbox,
+    offsetTop: 0,
+  };
+  sidebarScrollRegistrations.add(scrollRegistration);
+  onCleanup(() => {
+    sidebarScrollRegistrations.delete(scrollRegistration);
+    if (restoreScrollTimeout) clearTimeout(restoreScrollTimeout);
+  });
+
+  createEffect(() => {
+    props.expanded();
+    visibleChildIDs().join("|");
+    visibleChildLayoutSignature();
+    showingOtherSessions();
+    props.sidebarWidth?.();
+
+    if (restoreScrollTimeout) clearTimeout(restoreScrollTimeout);
+    restoreScrollTimeout = setTimeout(() => {
+      if (!props.expanded() || !scrollbox) return;
+      const top = clampedScrollTop(scrollbox, scrollRegistration.offsetTop);
+      if (top > 0 && scrollbox.scrollTop !== top) {
+        scrollbox.scrollTop = top;
+      }
+    }, 0);
+  });
+
+  const ChildRow = (rowProps: { childID: string }) => {
+    const child = createMemo(() =>
+      visibleChildren().find((candidate) => candidate.id === rowProps.childID),
+    );
     const [hovered, setHovered] = createSignal(false);
     const [focused, setFocused] = createSignal(false);
-    const targetSessionID = createMemo(() =>
-      resolveChildTargetSessionID(child()),
-    );
+    const targetSessionID = createMemo(() => {
+      const currentChild = child();
+      return currentChild ? resolveChildTargetSessionID(currentChild) : undefined;
+    });
     const clickable = createMemo(() => isSessionTarget(targetSessionID()));
     const emphasized = createMemo(
       () => clickable() && (hovered() || focused()),
     );
+    const status = createMemo<ChildSessionState["status"]>(
+      () => child()?.status ?? "running",
+    );
     const muted = createMemo(
-      () => child().status !== "running" && clickable() && !emphasized(),
+      () => status() !== "running" && clickable() && !emphasized(),
     );
     const rowOpacity = createMemo(() =>
-      child().status === "running" ? 1 : INACTIVE_SUBAGENT_OPACITY,
+      status() === "running" ? 1 : INACTIVE_SUBAGENT_OPACITY,
     );
-    const line = createMemo(() =>
-      formatChildRowLine({
-        child: child(),
+    const markerWidth = 4;
+    const line = createMemo(() => {
+      const currentChild = child();
+      if (!currentChild) {
+        return { labelLines: [""], elapsed: "00:00", meta: "" };
+      }
+      return formatChildRowLine({
+        child: currentChild,
         nowMs: props.nowMs(),
         sidebarWidth: props.sidebarWidth?.(),
-      }),
-    );
+        reservedWidth: markerWidth,
+      });
+    });
+    const hasSecondaryLine = createMemo(() => Boolean(line().secondaryLine));
     const activate = () =>
       navigateToSessionTarget(props.api, targetSessionID());
     const handleKeyDown = (event: { name: string }): void => {
@@ -757,7 +934,11 @@ function SidebarSubagents(props: {
     return (
       <box
         flexDirection="column"
-        height={line().parenthetical ? SUBAGENTS_ROW_HEIGHT : SUBAGENTS_ROW_HEIGHT - 1}
+        height={
+          hasSecondaryLine()
+            ? SUBAGENTS_ROW_HEIGHT
+            : SUBAGENTS_ROW_HEIGHT - 1
+        }
         opacity={rowOpacity()}
         onMouseOver={clickable() ? () => setHovered(true) : undefined}
         onMouseOut={
@@ -774,22 +955,24 @@ function SidebarSubagents(props: {
         focused={clickable() && focused()}
       >
         <box flexDirection="row">
-          <text fg={statusColor(child().status, props.theme)}>
-            {statusIcon(child().status)}
+          <text fg={statusColor(status(), props.theme)}>
+            {taskStatusMarker(status())}
           </text>
           <text
             fg={muted() ? props.theme.textMuted : props.theme.text}
-          >{` ${line().label}`}</text>
+          >{` ${line().labelLines[0] ?? ""}`}</text>
         </box>
-        <Show when={line().parenthetical}>
-          {(parenthetical: Accessor<string>) => (
-            <text fg={emphasized() ? props.theme.text : props.theme.textMuted}>{`  ${parenthetical()}`}</text>
+        <Show when={line().secondaryLine}>
+          {(secondaryLine: Accessor<string>) => (
+            <text
+              fg={muted() ? props.theme.textMuted : props.theme.text}
+            >{`    ${secondaryLine()}`}</text>
           )}
         </Show>
-        <box flexDirection="row" paddingLeft={2}>
+        <box flexDirection="row" paddingLeft={4}>
           <text
             fg={emphasized() ? props.theme.text : props.theme.textMuted}
-          >{`${CLOCK_ICON} ${line().elapsed}`}</text>
+          >{`↳ ${CLOCK_ICON} ${line().elapsed}`}</text>
           <Show when={line().meta.length > 0}>
             <text
               fg={emphasized() ? props.theme.text : props.theme.textMuted}
@@ -820,30 +1003,23 @@ function SidebarSubagents(props: {
       <AggregateBar />
 
       <Show when={props.expanded()}>
-        <Show
-          when={shouldScroll()}
-          fallback={
-            <box flexDirection="column" rowGap={SUBAGENTS_ROW_GAP}>
-              <Show when={showingOtherSessions()}>
-                <text fg={props.theme.textMuted}>Other sessions</text>
-              </Show>
-              <For each={visibleChildren()}>
-                {(child: ChildSessionState) => <ChildRow child={child} />}
-              </For>
-            </box>
-          }
+        <scrollbox
+          ref={(element) => {
+            scrollbox = element;
+          }}
+          height={SUBAGENTS_MAX_LIST_HEIGHT}
+          scrollY
+          viewportCulling={false}
         >
-          <scrollbox height={SUBAGENTS_MAX_LIST_HEIGHT} scrollY>
-            <box flexDirection="column" rowGap={SUBAGENTS_ROW_GAP}>
-              <Show when={showingOtherSessions()}>
-                <text fg={props.theme.textMuted}>Other sessions</text>
-              </Show>
-              <For each={visibleChildren()}>
-                {(child: ChildSessionState) => <ChildRow child={child} />}
-              </For>
-            </box>
-          </scrollbox>
-        </Show>
+          <box flexDirection="column" rowGap={SUBAGENTS_ROW_GAP}>
+            <Show when={showingOtherSessions()}>
+              <text fg={props.theme.textMuted}>Other sessions</text>
+            </Show>
+            <For each={visibleChildIDs()}>
+              {(childID: string) => <ChildRow childID={childID} />}
+            </For>
+          </box>
+        </scrollbox>
       </Show>
     </box>
   );
@@ -967,6 +1143,7 @@ async function hydratePreviousSubagents(
         .map((result) => [result.childID as string, result]),
     );
 
+    snapshotSidebarScrollOffsets();
     setState((current) => {
       const next = cloneState(current);
       let changed = false;
@@ -1426,6 +1603,7 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
   });
 
   const tick = setInterval(() => {
+    snapshotSidebarScrollOffsets();
     setNowMs(Date.now());
     setState((current: StatuslineState) => {
       const next = cloneState(current);
@@ -1437,6 +1615,7 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
 
   const applyEvent = (event: unknown): void => {
     debugEvent(event);
+    snapshotSidebarScrollOffsets();
     setState((current: StatuslineState) => {
       const next = cloneState(current);
       const changed = applySubagentEvent(next, event);

@@ -14,6 +14,8 @@ export interface ChildTokenState {
 export interface ChildSessionState {
   id: string;
   title: string;
+  summary?: string;
+  agentName?: string;
   parentID: string;
   messageID?: string;
   source?: "session" | "subtask" | "tool";
@@ -106,6 +108,33 @@ function mergeTokens(
     total: incoming?.total ?? existing?.total,
     contextPercent: incoming?.contextPercent ?? existing?.contextPercent,
   };
+}
+
+function sameTokens(
+  left: ChildTokenState | undefined,
+  right: ChildTokenState | undefined,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function normalizeComparableText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function sanitizeSummary(value: unknown, title: string): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const summary = value.replace(/\s+/g, " ").trim();
+  if (!summary) return undefined;
+  if (normalizeComparableText(summary) === normalizeComparableText(title)) {
+    return undefined;
+  }
+  return summary;
+}
+
+function sanitizeAgentName(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const agentName = value.replace(/^\((.*)\)$/, "$1").replace(/\s+/g, " ").trim();
+  return agentName || undefined;
 }
 
 function resolveElapsedMs(child: ChildSessionState, nowMs: number): number {
@@ -251,7 +280,13 @@ export function upsertRunningChild(
     Partial<
       Pick<
         ChildSessionState,
-        "messageID" | "source" | "targetSessionID" | "startedAt" | "updatedAt"
+        | "summary"
+        | "agentName"
+        | "messageID"
+        | "source"
+        | "targetSessionID"
+        | "startedAt"
+        | "updatedAt"
       >
     >,
 ): boolean {
@@ -268,6 +303,10 @@ export function upsertRunningChild(
   const next: ChildSessionState = {
     id: input.id,
     title: input.title,
+    summary:
+      sanitizeSummary(input.summary, input.title) ??
+      sanitizeSummary(existing?.summary, input.title),
+    agentName: sanitizeAgentName(input.agentName) ?? existing?.agentName,
     parentID: input.parentID,
     messageID: input.messageID ?? existing?.messageID,
     source: input.source ?? existing?.source ?? "session",
@@ -281,6 +320,24 @@ export function upsertRunningChild(
     tokens: existing?.tokens,
   };
 
+  if (
+    existing &&
+    next.title === existing.title &&
+    next.summary === existing.summary &&
+    next.agentName === existing.agentName &&
+    next.parentID === existing.parentID &&
+    next.messageID === existing.messageID &&
+    next.source === existing.source &&
+    next.targetSessionID === existing.targetSessionID &&
+    next.status === existing.status &&
+    next.color === existing.color &&
+    next.startedAt === existing.startedAt &&
+    next.endedAt === existing.endedAt &&
+    sameTokens(next.tokens, existing.tokens)
+  ) {
+    return false;
+  }
+
   state.children[input.id] = next;
   state.updatedAt = observedUpdatedAt;
   return true;
@@ -292,26 +349,45 @@ export function markChildStatus(
   status: Exclude<ChildStatus, "running">,
   endedAt?: string,
 ): boolean {
-  const existing = state.children[childID];
-  if (!existing) {
-    return false;
+  const now = new Date().toISOString();
+  let changed = false;
+  let stateUpdatedAt = state.updatedAt;
+
+  for (const child of Object.values(state.children)) {
+    if (child.id !== childID && child.targetSessionID !== childID) continue;
+
+    const observedEndedAt = endedAt
+      ? safeTimestamp(endedAt, now)
+      : child.endedAt ?? now;
+
+    if (
+      child.status === status &&
+      child.color === statusColor(status) &&
+      child.updatedAt === observedEndedAt &&
+      child.endedAt === observedEndedAt
+    ) {
+      continue;
+    }
+
+    const nextChild: ChildSessionState = {
+      ...child,
+      status,
+      color: statusColor(status),
+      updatedAt: observedEndedAt,
+      endedAt: observedEndedAt,
+    };
+    state.children[child.id] = {
+      ...nextChild,
+      elapsedMs: resolveElapsedMs(nextChild, Date.now()),
+    };
+    stateUpdatedAt = observedEndedAt;
+    changed = true;
   }
 
-  const now = new Date().toISOString();
-  const observedEndedAt = safeTimestamp(endedAt, now);
-  const nextChild: ChildSessionState = {
-    ...existing,
-    status,
-    color: statusColor(status),
-    updatedAt: observedEndedAt,
-    endedAt: observedEndedAt,
-  };
-  state.children[childID] = {
-    ...nextChild,
-    elapsedMs: resolveElapsedMs(nextChild, Date.now()),
-  };
-  state.updatedAt = observedEndedAt;
-  return true;
+  if (changed) {
+    state.updatedAt = stateUpdatedAt;
+  }
+  return changed;
 }
 
 export function upsertChildDetails(
@@ -319,6 +395,8 @@ export function upsertChildDetails(
   childID: string,
   input: {
     title?: string;
+    summary?: string;
+    agentName?: string;
     tokens?: ChildTokenState;
     targetSessionID?: string;
     updatedAt?: string;
@@ -331,6 +409,10 @@ export function upsertChildDetails(
     typeof input.title === "string" && input.title.trim().length > 0
       ? input.title
       : existing.title;
+  const nextSummary =
+    sanitizeSummary(input.summary, nextTitle) ??
+    sanitizeSummary(existing.summary, nextTitle);
+  const nextAgentName = sanitizeAgentName(input.agentName) ?? existing.agentName;
   const mergedTokens = mergeTokens(existing.tokens, input.tokens);
   const nextTargetSessionID = sanitizeTargetSessionID(
     input.targetSessionID ?? existing.targetSessionID,
@@ -339,17 +421,20 @@ export function upsertChildDetails(
 
   const detailsChanged =
     nextTitle !== existing.title ||
-    JSON.stringify(mergedTokens) !== JSON.stringify(existing.tokens) ||
+    nextSummary !== existing.summary ||
+    nextAgentName !== existing.agentName ||
+    !sameTokens(mergedTokens, existing.tokens) ||
     nextTargetSessionID !== existing.targetSessionID;
 
-  const shouldTouch = existing.status === "running";
-  if (!detailsChanged && !shouldTouch) return false;
+  if (!detailsChanged) return false;
 
   const now = new Date().toISOString();
   const observedUpdatedAt = safeTimestamp(input.updatedAt, now);
   state.children[childID] = {
     ...existing,
     title: nextTitle,
+    summary: nextSummary,
+    agentName: nextAgentName,
     tokens: mergedTokens,
     targetSessionID: nextTargetSessionID,
     updatedAt: observedUpdatedAt,

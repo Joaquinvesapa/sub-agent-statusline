@@ -138,15 +138,11 @@ function childColor(child: ChildSessionState): string {
 }
 
 export function byPriority(a: ChildSessionState, b: ChildSessionState): number {
-  const rank = (status: ChildSessionState["status"]): number => {
-    if (status === "running") return 0;
-    if (status === "error") return 1;
-    return 2;
-  };
+  const startedDiff = b.startedAt.localeCompare(a.startedAt);
+  if (startedDiff !== 0) return startedDiff;
 
-  const diff = rank(a.status) - rank(b.status);
-  if (diff !== 0) return diff;
-  return b.updatedAt.localeCompare(a.updatedAt);
+  // Keep execution-order ties stable across running async status/token updates.
+  return a.id.localeCompare(b.id);
 }
 
 export function renderStatusLine(state: StatuslineState): string {
