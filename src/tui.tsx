@@ -29,9 +29,7 @@ import type { Accessor } from "solid-js";
 import { applySubagentEvent, extractChildDetails } from "./events.js";
 import {
   byPriority,
-  collapseSubagentWorkItems,
   formatDuration,
-  isVisibleWorkItem,
   renderStatusLine,
   visibleSubagentWorkItems,
 } from "./render.js";
@@ -537,12 +535,6 @@ function navigateToSessionTarget(
   api.route.navigate("session", { sessionID: targetSessionID });
 }
 
-function collapseToolWrappers(
-  children: ChildSessionState[],
-): ChildSessionState[] {
-  return collapseSubagentWorkItems(children);
-}
-
 function toFinitePositiveInt(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
   const rounded = Math.floor(value);
@@ -636,9 +628,9 @@ function resolveTokenTotal(child: ChildSessionState): number | undefined {
 
 function formatCompactTokenCount(total: number): string {
   const value = Math.max(0, total);
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M tok`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k tok`;
-  return `${Math.round(value)} tok`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M ctx`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k ctx`;
+  return `${Math.round(value)} ctx`;
 }
 
 function formatCompactPercent(percent: number): string {
@@ -755,24 +747,31 @@ function SidebarSubagents(props: {
   sidebarWidth?: () => number | undefined;
   theme: TuiThemeCurrent;
 }) {
+  const activeOnly = (items: ChildSessionState[]): ChildSessionState[] => {
+    if (!items.some((child) => child.status === "running")) return items;
+    return items.filter((child) => child.status !== "done");
+  };
+
   const children = createMemo(() =>
-    collapseToolWrappers(
-      Object.values(props.state().children).filter(
-        (child) => child.parentID === props.sessionID,
+    activeOnly(
+      visibleSubagentWorkItems(
+        Object.values(props.state().children).filter(
+          (child) => child.parentID === props.sessionID,
+        ),
+        props.nowMs(),
       ),
-    )
-      .filter((child) => isVisibleWorkItem(child, props.nowMs()))
-      .sort(byPriority),
+    ).sort(byPriority),
   );
 
   const otherChildren = createMemo(() =>
-    collapseToolWrappers(
-      Object.values(props.state().children).filter(
-        (child) => child.parentID !== props.sessionID,
+    activeOnly(
+      visibleSubagentWorkItems(
+        Object.values(props.state().children).filter(
+          (child) => child.parentID !== props.sessionID,
+        ),
+        props.nowMs(),
       ),
-    )
-      .filter((child) => isVisibleWorkItem(child, props.nowMs()))
-      .sort(byPriority),
+    ).sort(byPriority),
   );
 
   const counts = createMemo(() => {

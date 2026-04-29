@@ -68,12 +68,12 @@ function formatTokenCount(total: number): string {
 function formatCompactTokenCount(total: number): string {
   const value = Math.max(0, total);
   if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)}M tok`;
+    return `${(value / 1_000_000).toFixed(1)}M ctx`;
   }
   if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(1)}k tok`;
+    return `${(value / 1_000).toFixed(1)}k ctx`;
   }
-  return `${Math.round(value)} tok`;
+  return `${Math.round(value)} ctx`;
 }
 
 function formatCompactPercentUsed(percent: number): string {
@@ -194,6 +194,18 @@ function sessionMatchesSynthetic(
   );
 }
 
+function messageKey(parentID: string, messageID: string): string {
+  return `${parentID}\0${messageID}`;
+}
+
+function betterPriority(
+  current: ChildSessionState | undefined,
+  candidate: ChildSessionState,
+): ChildSessionState {
+  if (!current) return candidate;
+  return byPriority(candidate, current) < 0 ? candidate : current;
+}
+
 function mergeSyntheticWithSession(
   synthetic: ChildSessionState,
   session: ChildSessionState | undefined,
@@ -216,46 +228,90 @@ function mergeSyntheticWithSession(
 export function collapseSubagentWorkItems(
   children: ChildSessionState[],
 ): ChildSessionState[] {
-  const syntheticChildren = children.filter(
-    (child) => child.source === "tool" || child.source === "subtask",
-  );
+  const syntheticChildren: ChildSessionState[] = [];
+  const syntheticByParentID = new Map<string, ChildSessionState[]>();
+  const sessionCandidatesByParentID = new Map<string, ChildSessionState[]>();
+  const hiddenTargetSessionIDs = new Set<string>();
+  const hiddenMessageKeys = new Set<string>();
+
+  for (const child of children) {
+    const isSynthetic = child.source === "tool" || child.source === "subtask";
+    if (isSynthetic) {
+      syntheticChildren.push(child);
+      const siblings = syntheticByParentID.get(child.parentID);
+      if (siblings) {
+        siblings.push(child);
+      } else {
+        syntheticByParentID.set(child.parentID, [child]);
+      }
+
+      if (child.targetSessionID) {
+        hiddenTargetSessionIDs.add(child.targetSessionID);
+      }
+      if (child.messageID) {
+        hiddenMessageKeys.add(messageKey(child.parentID, child.messageID));
+      }
+    }
+
+    if (child.source === "session" || child.id.startsWith("ses_")) {
+      const candidates = sessionCandidatesByParentID.get(child.parentID);
+      if (candidates) {
+        candidates.push(child);
+      } else {
+        sessionCandidatesByParentID.set(child.parentID, [child]);
+      }
+    }
+  }
+
   const sessionBySyntheticID = new Map<string, ChildSessionState>();
+  const hiddenMatchedSessionIDs = new Set<string>();
+  const hiddenSyntheticToolIDs = new Set<string>();
 
   for (const synthetic of syntheticChildren) {
-    const matchingSessions = children.filter((candidate) =>
-      sessionMatchesSynthetic(candidate, synthetic),
-    );
-    if (matchingSessions.length > 0) {
-      sessionBySyntheticID.set(synthetic.id, matchingSessions.sort(byPriority)[0]);
+    let bestSession: ChildSessionState | undefined;
+    for (const candidate of sessionCandidatesByParentID.get(synthetic.parentID) ?? []) {
+      if (!sessionMatchesSynthetic(candidate, synthetic)) continue;
+      bestSession = betterPriority(bestSession, candidate);
+      if (candidate.source === "session") {
+        hiddenMatchedSessionIDs.add(candidate.id);
+      }
+    }
+    if (bestSession) {
+      sessionBySyntheticID.set(synthetic.id, bestSession);
+    }
+  }
+
+  for (const siblings of syntheticByParentID.values()) {
+    for (const child of siblings) {
+      if (child.source !== "tool") continue;
+      if (isGenericToolWrapper(child)) {
+        if (siblings.length > 1) hiddenSyntheticToolIDs.add(child.id);
+        continue;
+      }
+
+      for (const sibling of siblings) {
+        if (sibling.id === child.id) continue;
+        if (relatedWorkItemTitles(sibling.title, child.title)) {
+          hiddenSyntheticToolIDs.add(child.id);
+          break;
+        }
+      }
     }
   }
 
   return children
     .filter((child) => {
       if (child.source === "session") {
-        return !syntheticChildren.some(
-          (synthetic) =>
-            synthetic.targetSessionID === child.id ||
-            (synthetic.parentID === child.parentID &&
-              synthetic.messageID &&
-              synthetic.messageID === child.messageID) ||
-            sessionMatchesSynthetic(child, synthetic),
+        return !(
+          hiddenTargetSessionIDs.has(child.id) ||
+          (child.messageID &&
+            hiddenMessageKeys.has(messageKey(child.parentID, child.messageID))) ||
+          hiddenMatchedSessionIDs.has(child.id)
         );
       }
 
       if (child.source !== "tool") return true;
-      if (isGenericToolWrapper(child)) {
-        return !syntheticChildren.some(
-          (synthetic) =>
-            synthetic.id !== child.id && synthetic.parentID === child.parentID,
-        );
-      }
-      return !syntheticChildren.some(
-        (real) =>
-          real.id !== child.id &&
-          real.parentID === child.parentID &&
-          relatedWorkItemTitles(real.title, child.title),
-      );
+      return !hiddenSyntheticToolIDs.has(child.id);
     })
     .map((child) => mergeSyntheticWithSession(child, sessionBySyntheticID.get(child.id)));
 }
@@ -274,9 +330,23 @@ export function visibleSubagentWorkItems(
   children: ChildSessionState[],
   nowMs = Date.now(),
 ): ChildSessionState[] {
-  return collapseSubagentWorkItems(children).filter((child) =>
+  const visible = collapseSubagentWorkItems(children).filter((child) =>
     isVisibleWorkItem(child, nowMs),
   );
+  const hasRunning = visible.some((child) => child.status === "running");
+  const activeMessageIDs = new Set(
+    visible
+      .filter((child) => child.status === "running" && child.messageID)
+      .map((child) => child.messageID as string),
+  );
+
+  if (!hasRunning) return visible;
+
+  return visible.filter((child) => {
+    if (child.status === "running" || child.status === "error") return true;
+    if (!child.messageID) return false;
+    return activeMessageIDs.has(child.messageID);
+  });
 }
 
 export function renderStatusLine(state: StatuslineState): string {

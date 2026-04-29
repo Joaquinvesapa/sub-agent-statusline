@@ -40,6 +40,9 @@ export interface StatusCounts {
   error: number;
 }
 
+const TERMINAL_CHILD_TTL_MS = 60 * 60 * 1000;
+const MAX_TERMINAL_CHILDREN = 500;
+
 function statusColor(status: ChildStatus): ChildSessionState["color"] {
   if (status === "done") return "green";
   if (status === "error") return "red";
@@ -147,6 +150,45 @@ function resolveElapsedMs(child: ChildSessionState, nowMs: number): number {
   return Math.max(0, endMs - startedMs);
 }
 
+function terminalReferenceMs(child: ChildSessionState): number {
+  const parsed = Date.parse(child.endedAt ?? child.updatedAt ?? child.startedAt);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+export function pruneTerminalChildren(
+  state: StatuslineState,
+  now = new Date(),
+): number {
+  const nowMs = now.getTime();
+  const terminalChildren: Array<{ id: string; referenceMs: number }> = [];
+  let pruned = 0;
+
+  for (const child of Object.values(state.children)) {
+    if (child.status === "running") continue;
+
+    const referenceMs = terminalReferenceMs(child);
+    if (nowMs - referenceMs > TERMINAL_CHILD_TTL_MS) {
+      delete state.children[child.id];
+      pruned += 1;
+      continue;
+    }
+
+    terminalChildren.push({ id: child.id, referenceMs });
+  }
+
+  if (terminalChildren.length <= MAX_TERMINAL_CHILDREN) {
+    return pruned;
+  }
+
+  terminalChildren.sort((a, b) => b.referenceMs - a.referenceMs || a.id.localeCompare(b.id));
+  for (const child of terminalChildren.slice(MAX_TERMINAL_CHILDREN)) {
+    delete state.children[child.id];
+    pruned += 1;
+  }
+
+  return pruned;
+}
+
 export function refreshDerivedFields(
   state: StatuslineState,
   now = new Date(),
@@ -192,6 +234,9 @@ export function refreshDerivedFields(
   }
 
   state.updatedAt = safeTimestamp(state.updatedAt, nowISO);
+  if (pruneTerminalChildren(state, now) > 0) {
+    state.updatedAt = nowISO;
+  }
 }
 
 const STATUS_DIRNAME = "opencode-subagent-statusline";
