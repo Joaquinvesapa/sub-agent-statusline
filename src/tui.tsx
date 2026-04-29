@@ -1026,13 +1026,13 @@ function SidebarSubagents(props: {
 
   const AggregateBar = () => (
     <box flexDirection="row" paddingRight={1}>
-      <text fg={props.theme.warning}>{`●${counts().running} run`}</text>
+      <text fg={props.theme.warning}>{`● ${counts().running} run`}</text>
       <text fg={props.theme.textMuted}> · </text>
-      <text fg={props.theme.success}>{`✓${counts().done} done`}</text>
+      <text fg={props.theme.success}>{`✓ ${counts().done} done`}</text>
       <text fg={props.theme.textMuted}> · </text>
-      <text fg={props.theme.error}>{`✕${counts().error} err`}</text>
+      <text fg={props.theme.error}>{`✕ ${counts().error} err`}</text>
       <text fg={props.theme.textMuted}> · </text>
-      <text fg={props.theme.warning}>{`Σ${totalExecuted()}`}</text>
+      <text fg={props.theme.text}>{`Σ ${totalExecuted()}`}</text>
     </box>
   );
 
@@ -1096,7 +1096,7 @@ function HomeBottomStatus(props: {
           <text fg={props.theme.textMuted}> · </text>
           <text fg={props.theme.error}>{`✕ ${counts().error}`}</text>
           <text fg={props.theme.textMuted}> · </text>
-          <text fg={props.theme.warning}>{`Σ${totalExecuted()}`}</text>
+          <text fg={props.theme.text}>{`Σ ${totalExecuted()}`}</text>
         </box>
       </box>
     </Show>
