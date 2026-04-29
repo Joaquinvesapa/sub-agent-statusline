@@ -1031,7 +1031,8 @@ function SidebarSubagents(props: {
       <text fg={props.theme.success}>{`✓${counts().done} done`}</text>
       <text fg={props.theme.textMuted}> · </text>
       <text fg={props.theme.error}>{`✕${counts().error} err`}</text>
-      <text fg={props.theme.textMuted}>{` · Σ${totalExecuted()}`}</text>
+      <text fg={props.theme.textMuted}> · </text>
+      <text fg={props.theme.warning}>{`Σ${totalExecuted()}`}</text>
     </box>
   );
 
@@ -1094,7 +1095,8 @@ function HomeBottomStatus(props: {
           <text fg={props.theme.success}>{`✓ ${counts().done}`}</text>
           <text fg={props.theme.textMuted}> · </text>
           <text fg={props.theme.error}>{`✕ ${counts().error}`}</text>
-          <text fg={props.theme.textMuted}>{` · Σ ${totalExecuted()} total`}</text>
+          <text fg={props.theme.textMuted}> · </text>
+          <text fg={props.theme.warning}>{`Σ${totalExecuted()}`}</text>
         </box>
       </box>
     </Show>
