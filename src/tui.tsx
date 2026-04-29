@@ -58,12 +58,13 @@ const CLOCK_ICON = "";
 const TOKEN_ICON = "";
 const SUBAGENTS_EXPANDED_KV_KEY = "subagents.sidebar.expanded";
 const SUBAGENTS_SECTION_ENABLED_KV_KEY = "subagents.sidebar.enabled";
-const SUBAGENTS_VISIBLE_ROWS = 5;
-const SUBAGENTS_ROW_HEIGHT = 3;
+const SUBAGENTS_MAX_VISIBLE_ROWS = 5;
+const SUBAGENTS_RUNNING_ROW_HEIGHT = 3;
+const SUBAGENTS_TERMINAL_ROW_HEIGHT = 1;
 const SUBAGENTS_ROW_GAP = 0;
 const SUBAGENTS_MAX_LIST_HEIGHT =
-  SUBAGENTS_VISIBLE_ROWS * SUBAGENTS_ROW_HEIGHT +
-  (SUBAGENTS_VISIBLE_ROWS - 1) * SUBAGENTS_ROW_GAP;
+  SUBAGENTS_MAX_VISIBLE_ROWS * SUBAGENTS_RUNNING_ROW_HEIGHT +
+  (SUBAGENTS_MAX_VISIBLE_ROWS - 1) * SUBAGENTS_ROW_GAP;
 const INACTIVE_SUBAGENT_OPACITY = 0.65;
 
 interface SidebarScrollRegistration {
@@ -739,6 +740,50 @@ function formatChildRowLine(input: {
   };
 }
 
+function formatTerminalChildRowLine(input: {
+  child: ChildSessionState;
+  nowMs: number;
+  sidebarWidth?: number;
+  reservedWidth?: number;
+}): {
+  label: string;
+  meta: string;
+} {
+  const elapsed = formatDuration(elapsedMs(input.child, input.nowMs));
+  const width = Math.max(
+    MIN_ROW_WIDTH,
+    rowWidthBudget(input.sidebarWidth) - (input.reservedWidth ?? 0),
+  );
+  const title = splitParentheticalTitle(childPrimaryText(input.child));
+  const parenthetical = childParenthetical(input.child);
+  const labelSource = parenthetical
+    ? `${title.label} ${parenthetical}`
+    : title.label;
+
+  for (const context of contextVariants(input.child)) {
+    const meta = context ? `${elapsed} · ${context}` : elapsed;
+    const metaWidth = meta.length + 3;
+    const labelBudget = width - metaWidth;
+    if (labelBudget >= MIN_LABEL_WIDTH || context.length === 0) {
+      return {
+        label: ellipsize(labelSource, Math.max(1, labelBudget)),
+        meta,
+      };
+    }
+  }
+
+  return {
+    label: ellipsize(labelSource, Math.max(1, width - elapsed.length - 3)),
+    meta: elapsed,
+  };
+}
+
+function subagentRowHeight(child: ChildSessionState): number {
+  return child.status === "running"
+    ? SUBAGENTS_RUNNING_ROW_HEIGHT
+    : SUBAGENTS_TERMINAL_ROW_HEIGHT;
+}
+
 function SidebarSubagents(props: {
   api: TuiPluginApi;
   sessionID: string;
@@ -819,6 +864,17 @@ function SidebarSubagents(props: {
       .join("|"),
   );
 
+  const listHeight = createMemo(() => {
+    const contentHeight =
+      visibleChildren().reduce(
+        (height, child) => height + subagentRowHeight(child),
+        showingOtherSessions() ? 1 : 0,
+      ) +
+      Math.max(0, visibleChildren().length - 1) * SUBAGENTS_ROW_GAP;
+
+    return Math.max(1, Math.min(SUBAGENTS_MAX_LIST_HEIGHT, contentHeight));
+  });
+
   let scrollbox: ScrollBoxRenderable | undefined;
   let restoreScrollTimeout: ReturnType<typeof setTimeout> | undefined;
   const scrollRegistration: SidebarScrollRegistration = {
@@ -884,7 +940,23 @@ function SidebarSubagents(props: {
         reservedWidth: markerWidth,
       });
     });
+    const terminalLine = createMemo(() => {
+      const currentChild = child();
+      if (!currentChild) return { label: "", meta: "00:00" };
+      return formatTerminalChildRowLine({
+        child: currentChild,
+        nowMs: props.nowMs(),
+        sidebarWidth: props.sidebarWidth?.(),
+        reservedWidth: markerWidth,
+      });
+    });
     const hasSecondaryLine = createMemo(() => Boolean(line().secondaryLine));
+    const rowHeight = createMemo(() => {
+      if (status() !== "running") return SUBAGENTS_TERMINAL_ROW_HEIGHT;
+      return hasSecondaryLine()
+        ? SUBAGENTS_RUNNING_ROW_HEIGHT
+        : SUBAGENTS_RUNNING_ROW_HEIGHT - 1;
+    });
     const activate = () =>
       navigateToSessionTarget(props.api, targetSessionID());
     const handleKeyDown = (event: { name: string }): void => {
@@ -898,11 +970,7 @@ function SidebarSubagents(props: {
     return (
       <box
         flexDirection="column"
-        height={
-          hasSecondaryLine()
-            ? SUBAGENTS_ROW_HEIGHT
-            : SUBAGENTS_ROW_HEIGHT - 1
-        }
+        height={rowHeight()}
         opacity={rowOpacity()}
         onMouseOver={clickable() ? () => setHovered(true) : undefined}
         onMouseOut={
@@ -918,43 +986,62 @@ function SidebarSubagents(props: {
         focusable={clickable()}
         focused={clickable() && focused()}
       >
-        <box flexDirection="row">
-          <text fg={statusColor(status(), props.theme)}>
-            {taskStatusMarker(status())}
-          </text>
-          <text
-            fg={muted() ? props.theme.textMuted : props.theme.text}
-          >{` ${line().labelLines[0] ?? ""}`}</text>
-        </box>
-        <Show when={line().secondaryLine}>
-          {(secondaryLine: Accessor<string>) => (
-            <text
-              fg={muted() ? props.theme.textMuted : props.theme.text}
-            >{`    ${secondaryLine()}`}</text>
-          )}
+        <Show
+          when={status() === "running"}
+          fallback={
+            <box flexDirection="row">
+              <text fg={statusColor(status(), props.theme)}>
+                {taskStatusMarker(status())}
+              </text>
+              <text
+                fg={muted() ? props.theme.textMuted : props.theme.text}
+              >{` ${terminalLine().label}`}</text>
+              <text
+                fg={emphasized() ? props.theme.text : props.theme.textMuted}
+              >{` · ${terminalLine().meta}`}</text>
+            </box>
+          }
+        >
+          <box flexDirection="column">
+            <box flexDirection="row">
+              <text fg={statusColor(status(), props.theme)}>
+                {taskStatusMarker(status())}
+              </text>
+              <text
+                fg={muted() ? props.theme.textMuted : props.theme.text}
+              >{` ${line().labelLines[0] ?? ""}`}</text>
+            </box>
+            <Show when={line().secondaryLine}>
+              {(secondaryLine: Accessor<string>) => (
+                <text
+                  fg={muted() ? props.theme.textMuted : props.theme.text}
+                >{`    ${secondaryLine()}`}</text>
+              )}
+            </Show>
+            <box flexDirection="row" paddingLeft={4}>
+              <text
+                fg={emphasized() ? props.theme.text : props.theme.textMuted}
+              >{`↳ ${CLOCK_ICON} ${line().elapsed}`}</text>
+              <Show when={line().meta.length > 0}>
+                <text
+                  fg={emphasized() ? props.theme.text : props.theme.textMuted}
+                >{` ${TOKEN_ICON} ${line().meta}`}</text>
+              </Show>
+            </box>
+          </box>
         </Show>
-        <box flexDirection="row" paddingLeft={4}>
-          <text
-            fg={emphasized() ? props.theme.text : props.theme.textMuted}
-          >{`↳ ${CLOCK_ICON} ${line().elapsed}`}</text>
-          <Show when={line().meta.length > 0}>
-            <text
-              fg={emphasized() ? props.theme.text : props.theme.textMuted}
-            >{` ${TOKEN_ICON} ${line().meta}`}</text>
-          </Show>
-        </box>
       </box>
     );
   };
 
   const AggregateBar = () => (
     <box flexDirection="row" paddingRight={1}>
-      <text fg={props.theme.warning}>{`● ${counts().running} running`}</text>
+      <text fg={props.theme.warning}>{`●${counts().running} run`}</text>
       <text fg={props.theme.textMuted}> · </text>
-      <text fg={props.theme.success}>{`✓ ${counts().done} done`}</text>
+      <text fg={props.theme.success}>{`✓${counts().done} done`}</text>
       <text fg={props.theme.textMuted}> · </text>
-      <text fg={props.theme.error}>{`✕ ${counts().error} error`}</text>
-      <text fg={props.theme.textMuted}>{` · Σ ${totalExecuted()} total`}</text>
+      <text fg={props.theme.error}>{`✕${counts().error} err`}</text>
+      <text fg={props.theme.textMuted}>{` · Σ${totalExecuted()}`}</text>
     </box>
   );
 
@@ -972,7 +1059,7 @@ function SidebarSubagents(props: {
           ref={(element) => {
             scrollbox = element;
           }}
-          height={SUBAGENTS_MAX_LIST_HEIGHT}
+          height={listHeight()}
           scrollY
           viewportCulling={false}
         >
