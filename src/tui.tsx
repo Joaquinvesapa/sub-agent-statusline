@@ -27,10 +27,16 @@ import {
 } from "solid-js";
 import type { Accessor } from "solid-js";
 import { applySubagentEvent, extractChildDetails } from "./events.js";
-import { byPriority, formatDuration, renderStatusLine } from "./render.js";
+import {
+  byPriority,
+  collapseSubagentWorkItems,
+  formatDuration,
+  isVisibleWorkItem,
+  renderStatusLine,
+  visibleSubagentWorkItems,
+} from "./render.js";
 import {
   createEmptyState,
-  getCounts,
   markChildStatus,
   resolveStatePath,
   resolveTextPath,
@@ -449,21 +455,6 @@ function statusColor(
   return theme.warning;
 }
 
-function normalizeTitle(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/\s*\([^)]*\)\s*/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function relatedTitles(a: string, b: string): boolean {
-  const left = normalizeTitle(a);
-  const right = normalizeTitle(b);
-  if (!left || !right) return false;
-  return left.includes(right) || right.includes(left);
-}
-
 function isSessionTarget(value: unknown): value is string {
   return typeof value === "string" && value.startsWith("ses_");
 }
@@ -546,43 +537,10 @@ function navigateToSessionTarget(
   api.route.navigate("session", { sessionID: targetSessionID });
 }
 
-function isGenericToolWrapper(child: ChildSessionState): boolean {
-  if (child.source !== "tool") return false;
-  const title = normalizeTitle(child.title);
-  return title === "delegate" || title === "task";
-}
-
 function collapseToolWrappers(
   children: ChildSessionState[],
 ): ChildSessionState[] {
-  const syntheticChildren = children.filter(
-    (child) => child.source === "tool" || child.source === "subtask",
-  );
-  return children.filter((child) => {
-    if (child.source === "session") {
-      return !syntheticChildren.some(
-        (synthetic) =>
-          synthetic.targetSessionID === child.id ||
-          (synthetic.parentID === child.parentID &&
-            synthetic.messageID &&
-            synthetic.messageID === child.messageID),
-      );
-    }
-
-    if (child.source !== "tool") return true;
-    if (isGenericToolWrapper(child)) {
-      return !syntheticChildren.some(
-        (synthetic) =>
-          synthetic.id !== child.id && synthetic.parentID === child.parentID,
-      );
-    }
-    return !syntheticChildren.some(
-      (real) =>
-        real.id !== child.id &&
-        real.parentID === child.parentID &&
-        relatedTitles(real.title, child.title),
-    );
-  });
+  return collapseSubagentWorkItems(children);
 }
 
 function toFinitePositiveInt(value: unknown): number | undefined {
@@ -802,7 +760,9 @@ function SidebarSubagents(props: {
       Object.values(props.state().children).filter(
         (child) => child.parentID === props.sessionID,
       ),
-    ).sort(byPriority),
+    )
+      .filter((child) => isVisibleWorkItem(child, props.nowMs()))
+      .sort(byPriority),
   );
 
   const otherChildren = createMemo(() =>
@@ -810,7 +770,9 @@ function SidebarSubagents(props: {
       Object.values(props.state().children).filter(
         (child) => child.parentID !== props.sessionID,
       ),
-    ).sort(byPriority),
+    )
+      .filter((child) => isVisibleWorkItem(child, props.nowMs()))
+      .sort(byPriority),
   );
 
   const counts = createMemo(() => {
@@ -1029,7 +991,15 @@ function HomeBottomStatus(props: {
   state: () => StatuslineState;
   theme: TuiThemeCurrent;
 }) {
-  const counts = createMemo(() => getCounts(props.state()));
+  const counts = createMemo(() => {
+    const result = { running: 0, done: 0, error: 0 };
+    for (const child of visibleSubagentWorkItems(Object.values(props.state().children))) {
+      if (child.status === "running") result.running += 1;
+      if (child.status === "done") result.done += 1;
+      if (child.status === "error") result.error += 1;
+    }
+    return result;
+  });
   const visible = createMemo(() => counts().running > 0 || counts().error > 0);
 
   return (

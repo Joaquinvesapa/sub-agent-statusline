@@ -145,18 +145,142 @@ export function byPriority(a: ChildSessionState, b: ChildSessionState): number {
   return a.id.localeCompare(b.id);
 }
 
-export function renderStatusLine(state: StatuslineState): string {
-  const allChildren = Object.values(state.children);
-  const hasMatchingSubtask = (child: ChildSessionState): boolean =>
-    child.source === "tool" &&
-    allChildren.some(
-      (candidate) =>
-        candidate.source === "subtask" &&
-        candidate.parentID === child.parentID &&
-        candidate.messageID === child.messageID,
-    );
+const RECENT_DONE_VISIBLE_MS = 10 * 60 * 1000;
 
-  const children = allChildren.filter((child) => !hasMatchingSubtask(child)).sort(byPriority);
+function normalizeWorkItemTitle(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function relatedWorkItemTitles(a: string, b: string): boolean {
+  const left = normalizeWorkItemTitle(a);
+  const right = normalizeWorkItemTitle(b);
+  if (!left || !right) return false;
+  return left.includes(right) || right.includes(left);
+}
+
+function sameAgentName(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return true;
+  return normalizeWorkItemTitle(a) === normalizeWorkItemTitle(b);
+}
+
+function isGenericToolWrapper(child: ChildSessionState): boolean {
+  if (child.source !== "tool") return false;
+  const title = normalizeWorkItemTitle(child.title);
+  return title === "delegate" || title === "task";
+}
+
+function sessionMatchesSynthetic(
+  session: ChildSessionState,
+  synthetic: ChildSessionState,
+): boolean {
+  if (session.source !== "session" && !session.id.startsWith("ses_")) return false;
+  if (session.parentID !== synthetic.parentID) return false;
+  if (synthetic.targetSessionID === session.id) return true;
+  if (session.targetSessionID === synthetic.id) return true;
+  if (
+    synthetic.messageID &&
+    session.messageID &&
+    synthetic.messageID === session.messageID
+  ) {
+    return true;
+  }
+  return (
+    sameAgentName(session.agentName, synthetic.agentName) &&
+    relatedWorkItemTitles(session.title, synthetic.title)
+  );
+}
+
+function mergeSyntheticWithSession(
+  synthetic: ChildSessionState,
+  session: ChildSessionState | undefined,
+): ChildSessionState {
+  if (!session) return synthetic;
+  return {
+    ...synthetic,
+    status: session.status,
+    color: session.color,
+    startedAt: session.startedAt ?? synthetic.startedAt,
+    updatedAt: session.updatedAt ?? synthetic.updatedAt,
+    endedAt: session.endedAt ?? synthetic.endedAt,
+    elapsedMs: session.elapsedMs ?? synthetic.elapsedMs,
+    tokens: session.tokens ?? synthetic.tokens,
+    targetSessionID: session.id,
+    agentName: synthetic.agentName ?? session.agentName,
+  };
+}
+
+export function collapseSubagentWorkItems(
+  children: ChildSessionState[],
+): ChildSessionState[] {
+  const syntheticChildren = children.filter(
+    (child) => child.source === "tool" || child.source === "subtask",
+  );
+  const sessionBySyntheticID = new Map<string, ChildSessionState>();
+
+  for (const synthetic of syntheticChildren) {
+    const matchingSessions = children.filter((candidate) =>
+      sessionMatchesSynthetic(candidate, synthetic),
+    );
+    if (matchingSessions.length > 0) {
+      sessionBySyntheticID.set(synthetic.id, matchingSessions.sort(byPriority)[0]);
+    }
+  }
+
+  return children
+    .filter((child) => {
+      if (child.source === "session") {
+        return !syntheticChildren.some(
+          (synthetic) =>
+            synthetic.targetSessionID === child.id ||
+            (synthetic.parentID === child.parentID &&
+              synthetic.messageID &&
+              synthetic.messageID === child.messageID) ||
+            sessionMatchesSynthetic(child, synthetic),
+        );
+      }
+
+      if (child.source !== "tool") return true;
+      if (isGenericToolWrapper(child)) {
+        return !syntheticChildren.some(
+          (synthetic) =>
+            synthetic.id !== child.id && synthetic.parentID === child.parentID,
+        );
+      }
+      return !syntheticChildren.some(
+        (real) =>
+          real.id !== child.id &&
+          real.parentID === child.parentID &&
+          relatedWorkItemTitles(real.title, child.title),
+      );
+    })
+    .map((child) => mergeSyntheticWithSession(child, sessionBySyntheticID.get(child.id)));
+}
+
+export function isVisibleWorkItem(
+  child: ChildSessionState,
+  nowMs = Date.now(),
+): boolean {
+  if (child.status !== "done") return true;
+  const endedMs = Date.parse(child.endedAt ?? child.updatedAt);
+  if (Number.isNaN(endedMs)) return false;
+  return nowMs - endedMs <= RECENT_DONE_VISIBLE_MS;
+}
+
+export function visibleSubagentWorkItems(
+  children: ChildSessionState[],
+  nowMs = Date.now(),
+): ChildSessionState[] {
+  return collapseSubagentWorkItems(children).filter((child) =>
+    isVisibleWorkItem(child, nowMs),
+  );
+}
+
+export function renderStatusLine(state: StatuslineState): string {
+  const children = visibleSubagentWorkItems(Object.values(state.children)).sort(byPriority);
   const running = children.filter((c) => c.status === "running").length;
   const done = children.filter((c) => c.status === "done").length;
   const error = children.filter((c) => c.status === "error").length;
