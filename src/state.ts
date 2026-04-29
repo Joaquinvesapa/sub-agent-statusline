@@ -31,6 +31,8 @@ export interface ChildSessionState {
 
 export interface StatuslineState {
   children: Record<string, ChildSessionState>;
+  countedChildIDs: Record<string, true>;
+  totalExecuted: number;
   updatedAt: string;
 }
 
@@ -63,6 +65,63 @@ function toFiniteNumber(value: unknown): number | undefined {
     return Number.isFinite(parsed) ? parsed : undefined;
   }
   return undefined;
+}
+
+function toNonNegativeInteger(value: unknown): number | undefined {
+  const parsed = toFiniteNumber(value);
+  if (parsed === undefined) return undefined;
+  return Math.max(0, Math.floor(parsed));
+}
+
+function sanitizeCountedChildIDs(input: unknown): Record<string, true> {
+  if (!input || typeof input !== "object") return {};
+
+  const counted: Record<string, true> = {};
+  for (const [id, value] of Object.entries(input)) {
+    if (!id) continue;
+    if (value === true) {
+      counted[id] = true;
+    }
+  }
+  return counted;
+}
+
+function normalizeExecutionCounters(state: StatuslineState): void {
+  state.countedChildIDs = sanitizeCountedChildIDs(state.countedChildIDs);
+  const countedTotal = Object.keys(state.countedChildIDs).length;
+  state.totalExecuted = Math.max(
+    toNonNegativeInteger(state.totalExecuted) ?? 0,
+    countedTotal,
+  );
+}
+
+function isTechnicalDelegationTitle(value: string | undefined): boolean {
+  if (!value) return false;
+  return /^delegation:\s+/i.test(value.trim());
+}
+
+function isCountableWorkItem(child: Pick<ChildSessionState, "id" | "title"> &
+  Partial<Pick<ChildSessionState, "source">>): boolean {
+  if (child.source === "tool" || child.source === "subtask") return true;
+  if (child.source === "session" || child.id.startsWith("ses_")) {
+    return !isTechnicalDelegationTitle(child.title);
+  }
+  return true;
+}
+
+function countChildExecution(state: StatuslineState, child: Pick<ChildSessionState, "id" | "title"> &
+  Partial<Pick<ChildSessionState, "source">>): boolean {
+  if (!isCountableWorkItem(child)) return false;
+  normalizeExecutionCounters(state);
+  if (state.countedChildIDs[child.id]) return false;
+
+  const previousTotal = Math.max(
+    toNonNegativeInteger(state.totalExecuted) ?? 0,
+    Object.keys(state.countedChildIDs).length,
+  );
+  state.countedChildIDs[child.id] = true;
+  state.totalExecuted = previousTotal + 1;
+  return true;
 }
 
 function sanitizeTokens(input: unknown): ChildTokenState | undefined {
@@ -196,6 +255,8 @@ export function refreshDerivedFields(
   const nowISO = now.toISOString();
   const nowMs = now.getTime();
 
+  normalizeExecutionCounters(state);
+
   for (const [id, child] of Object.entries(state.children)) {
     const startedAt = safeTimestamp(child.startedAt, nowISO);
     const updatedAt = safeTimestamp(child.updatedAt, nowISO);
@@ -265,6 +326,8 @@ export function shouldPreserveStateOnStartup(): boolean {
 export function createEmptyState(): StatuslineState {
   return {
     children: {},
+    countedChildIDs: {},
+    totalExecuted: 0,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -295,8 +358,25 @@ export async function loadState(statePath: string): Promise<StatuslineState> {
     const children =
       parsed.children && typeof parsed.children === "object" ? parsed.children : {};
 
+    const countedChildIDs = sanitizeCountedChildIDs(parsed.countedChildIDs);
+    for (const [id, child] of Object.entries(children)) {
+      const candidate = child as Partial<ChildSessionState>;
+      if (typeof candidate.title === "string" && isCountableWorkItem({
+        id,
+        title: candidate.title,
+        source: candidate.source,
+      })) {
+        countedChildIDs[id] = true;
+      }
+    }
+
     const state: StatuslineState = {
       children: children as Record<string, ChildSessionState>,
+      countedChildIDs,
+      totalExecuted: Math.max(
+        toNonNegativeInteger(parsed.totalExecuted) ?? 0,
+        Object.keys(countedChildIDs).length,
+      ),
       updatedAt:
         typeof parsed.updatedAt === "string"
           ? parsed.updatedAt
@@ -339,6 +419,13 @@ export function upsertRunningChild(
   const observedUpdatedAt = safeTimestamp(input.updatedAt, now);
   const observedStartedAt = safeTimestamp(input.startedAt, observedUpdatedAt);
   const existing = state.children[input.id];
+  const counted = existing
+    ? false
+    : countChildExecution(state, {
+        id: input.id,
+        title: input.title,
+        source: input.source,
+      });
   const targetSessionID = sanitizeTargetSessionID(
     input.targetSessionID ?? existing?.targetSessionID,
     input.id.startsWith("ses_") ? input.id : undefined,
@@ -380,7 +467,7 @@ export function upsertRunningChild(
     next.endedAt === existing.endedAt &&
     sameTokens(next.tokens, existing.tokens)
   ) {
-    return false;
+    return counted;
   }
 
   state.children[input.id] = next;

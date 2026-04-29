@@ -354,9 +354,10 @@ export function renderStatusLine(state: StatuslineState): string {
   const running = children.filter((c) => c.status === "running").length;
   const done = children.filter((c) => c.status === "done").length;
   const error = children.filter((c) => c.status === "error").length;
+  const totalExecuted = formatNumber(state.totalExecuted ?? 0);
   const colorOn = colorsEnabled();
 
-  const aggregate = `↳ ${running} running · ${done} done · ${error} error`;
+  const aggregate = `↳ ${running} running · ${done} done · ${error} error · Σ ${totalExecuted} total`;
   if (children.length === 0) return aggregate;
 
   const details = children

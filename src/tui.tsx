@@ -137,6 +137,8 @@ function debugEvent(event: unknown): void {
 function cloneState(state: StatuslineState): StatuslineState {
   return {
     updatedAt: state.updatedAt,
+    totalExecuted: state.totalExecuted,
+    countedChildIDs: { ...state.countedChildIDs },
     children: Object.fromEntries(
       Object.entries(state.children).map(([id, child]) => [
         id,
@@ -783,6 +785,7 @@ function SidebarSubagents(props: {
     }
     return result;
   });
+  const totalExecuted = createMemo(() => props.state().totalExecuted ?? 0);
 
   const visibleChildren = createMemo(() => {
     const ownChildren = children();
@@ -951,6 +954,7 @@ function SidebarSubagents(props: {
       <text fg={props.theme.success}>{`✓ ${counts().done} done`}</text>
       <text fg={props.theme.textMuted}> · </text>
       <text fg={props.theme.error}>{`✕ ${counts().error} error`}</text>
+      <text fg={props.theme.textMuted}>{` · Σ ${totalExecuted()} total`}</text>
     </box>
   );
 
@@ -999,7 +1003,10 @@ function HomeBottomStatus(props: {
     }
     return result;
   });
-  const visible = createMemo(() => counts().running > 0 || counts().error > 0);
+  const totalExecuted = createMemo(() => props.state().totalExecuted ?? 0);
+  const visible = createMemo(
+    () => counts().running > 0 || counts().error > 0 || totalExecuted() > 0,
+  );
 
   return (
     <Show when={visible()}>
@@ -1010,6 +1017,7 @@ function HomeBottomStatus(props: {
           <text fg={props.theme.success}>{`✓ ${counts().done}`}</text>
           <text fg={props.theme.textMuted}> · </text>
           <text fg={props.theme.error}>{`✕ ${counts().error}`}</text>
+          <text fg={props.theme.textMuted}>{` · Σ ${totalExecuted()} total`}</text>
         </box>
       </box>
     </Show>
