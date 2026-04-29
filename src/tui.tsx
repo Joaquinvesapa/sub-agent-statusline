@@ -36,6 +36,7 @@ import {
 import {
   createEmptyState,
   markChildStatus,
+  refreshDerivedFields,
   resolveStatePath,
   resolveTextPath,
   saveState,
@@ -432,6 +433,21 @@ function persistStateSnapshot(
   })();
 }
 
+function refreshLiveState(state: StatuslineState): boolean {
+  const beforeChildIDs = new Set(Object.keys(state.children));
+  refreshDerivedFields(state);
+
+  if (Object.keys(state.children).length !== beforeChildIDs.size) {
+    return true;
+  }
+
+  for (const childID of beforeChildIDs) {
+    if (!state.children[childID]) return true;
+  }
+
+  return false;
+}
+
 function elapsedMs(child: ChildSessionState, nowMs: number): number {
   if (child.status !== "running") {
     return child.elapsedMs ?? 0;
@@ -782,30 +798,21 @@ function SidebarSubagents(props: {
   sidebarWidth?: () => number | undefined;
   theme: TuiThemeCurrent;
 }) {
-  const activeOnly = (items: ChildSessionState[]): ChildSessionState[] => {
-    if (!items.some((child) => child.status === "running")) return items;
-    return items.filter((child) => child.status !== "done");
-  };
-
   const children = createMemo(() =>
-    activeOnly(
-      visibleSubagentWorkItems(
-        Object.values(props.state().children).filter(
-          (child) => child.parentID === props.sessionID,
-        ),
-        props.nowMs(),
+    visibleSubagentWorkItems(
+      Object.values(props.state().children).filter(
+        (child) => child.parentID === props.sessionID,
       ),
+      props.nowMs(),
     ).sort(byPriority),
   );
 
   const otherChildren = createMemo(() =>
-    activeOnly(
-      visibleSubagentWorkItems(
-        Object.values(props.state().children).filter(
-          (child) => child.parentID !== props.sessionID,
-        ),
-        props.nowMs(),
+    visibleSubagentWorkItems(
+      Object.values(props.state().children).filter(
+        (child) => child.parentID !== props.sessionID,
       ),
+      props.nowMs(),
     ).sort(byPriority),
   );
 
@@ -1298,7 +1305,8 @@ async function hydratePreviousSubagents(
         changed = true;
       }
 
-      if (!changed) return current;
+      const refreshed = refreshLiveState(next);
+      if (!changed && !refreshed) return current;
       persistStateSnapshot(statePath, textPath, next);
       return next;
     });
@@ -1663,7 +1671,9 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
     setNowMs(Date.now());
     setState((current: StatuslineState) => {
       const next = cloneState(current);
-      if (!hydrateStateTokensFromTuiState(api, next)) return current;
+      const hydrated = hydrateStateTokensFromTuiState(api, next);
+      const refreshed = refreshLiveState(next);
+      if (!hydrated && !refreshed) return current;
       persistStateSnapshot(statePath, textPath, next);
       return next;
     });
@@ -1688,7 +1698,8 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
           })),
         });
       }
-      if (!changed && !hydrated) return current;
+      const refreshed = refreshLiveState(next);
+      if (!changed && !hydrated && !refreshed) return current;
       persistStateSnapshot(statePath, textPath, next);
       return next;
     });
