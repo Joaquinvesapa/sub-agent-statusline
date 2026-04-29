@@ -60,7 +60,7 @@ const SUBAGENTS_EXPANDED_KV_KEY = "subagents.sidebar.expanded";
 const SUBAGENTS_SECTION_ENABLED_KV_KEY = "subagents.sidebar.enabled";
 const SUBAGENTS_MAX_VISIBLE_ROWS = 5;
 const SUBAGENTS_RUNNING_ROW_HEIGHT = 3;
-const SUBAGENTS_TERMINAL_ROW_HEIGHT = 1;
+const SUBAGENTS_TERMINAL_ROW_HEIGHT = 2;
 const SUBAGENTS_ROW_GAP = 0;
 const SUBAGENTS_MAX_LIST_HEIGHT =
   SUBAGENTS_MAX_VISIBLE_ROWS * SUBAGENTS_RUNNING_ROW_HEIGHT +
@@ -750,31 +750,19 @@ function formatTerminalChildRowLine(input: {
   meta: string;
 } {
   const elapsed = formatDuration(elapsedMs(input.child, input.nowMs));
-  const width = Math.max(
-    MIN_ROW_WIDTH,
-    rowWidthBudget(input.sidebarWidth) - (input.reservedWidth ?? 0),
-  );
+  const width = Math.max(MIN_ROW_WIDTH, rowWidthBudget(input.sidebarWidth));
   const title = splitParentheticalTitle(childPrimaryText(input.child));
   const parenthetical = childParenthetical(input.child);
   const labelSource = parenthetical
     ? `${title.label} ${parenthetical}`
     : title.label;
-
-  for (const context of contextVariants(input.child)) {
-    const meta = context ? `${elapsed} · ${context}` : elapsed;
-    const metaWidth = meta.length + 3;
-    const labelBudget = width - metaWidth;
-    if (labelBudget >= MIN_LABEL_WIDTH || context.length === 0) {
-      return {
-        label: ellipsize(labelSource, Math.max(1, labelBudget)),
-        meta,
-      };
-    }
-  }
+  const context = contextVariants(input.child).find((variant) => variant.length > 0);
 
   return {
-    label: ellipsize(labelSource, Math.max(1, width - elapsed.length - 3)),
-    meta: elapsed,
+    label: ellipsize(labelSource, Math.max(1, width - (input.reservedWidth ?? 0))),
+    meta: context
+      ? `${elapsed} ${context}`
+      : elapsed,
   };
 }
 
@@ -989,16 +977,18 @@ function SidebarSubagents(props: {
         <Show
           when={status() === "running"}
           fallback={
-            <box flexDirection="row">
-              <text fg={statusColor(status(), props.theme)}>
-                {taskStatusMarker(status())}
-              </text>
-              <text
-                fg={muted() ? props.theme.textMuted : props.theme.text}
-              >{` ${terminalLine().label}`}</text>
+            <box flexDirection="column">
+              <box flexDirection="row">
+                <text fg={statusColor(status(), props.theme)}>
+                  {taskStatusMarker(status())}
+                </text>
+                <text
+                  fg={muted() ? props.theme.textMuted : props.theme.text}
+                >{` ${terminalLine().label}`}</text>
+              </box>
               <text
                 fg={emphasized() ? props.theme.text : props.theme.textMuted}
-              >{` · ${terminalLine().meta}`}</text>
+              >{`    ↳ ${CLOCK_ICON} ${terminalLine().meta}`}</text>
             </box>
           }
         >
