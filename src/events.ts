@@ -83,6 +83,27 @@ function firstDistinctSummary(
   return undefined;
 }
 
+function isTechnicalDelegationTitle(value: string | undefined): boolean {
+  if (!value) return false;
+  return /^delegation:\s+/i.test(value.trim());
+}
+
+function promptTitle(value: unknown): string | undefined {
+  const text = conciseText(value);
+  if (!text) return undefined;
+  const sentence = text.match(/^(.+?[.!?])\s/)?.[1]?.trim();
+  const title = sentence && sentence.length <= 100 ? sentence : text;
+  return title.length > 100 ? `${title.slice(0, 99)}…` : title;
+}
+
+function firstUsefulTitle(candidates: unknown[]): string | undefined {
+  for (const candidate of candidates) {
+    const title = promptTitle(candidate);
+    if (title && !isTechnicalDelegationTitle(title)) return title;
+  }
+  return undefined;
+}
+
 export function extractCreatedChild(event: EventLike): {
   id: string;
   title: string;
@@ -309,7 +330,13 @@ function extractToolChild(event: EventLike): ToolChild | null {
   const input = isRecord(state.input) ? state.input : {};
   const description = asString(input.description);
   const subagentType = asString(input.subagent_type);
-  const title = asString(state.title) || description || subagentType || tool;
+  const rawTitle = asString(state.title);
+  const title =
+    (isTechnicalDelegationTitle(rawTitle) ? undefined : rawTitle) ||
+    description ||
+    firstUsefulTitle([input.prompt, part.description, state.description]) ||
+    subagentType ||
+    tool;
   const summary = firstDistinctSummary(
     [input.prompt, input.description, part.description, state.description],
     title,
@@ -451,6 +478,14 @@ export function extractChildDetails(event: EventLike): {
     ],
     details.title,
   );
+  if (isTechnicalDelegationTitle(details.title)) {
+    const replacementTitle =
+      asString(partInput?.description) ??
+      firstUsefulTitle([partInput?.prompt, part?.description, partState?.description]);
+    if (replacementTitle) {
+      details.title = replacementTitle;
+    }
+  }
 
   const tokenHints: ChildTokenState = {};
   const visited = new Set<object>();
