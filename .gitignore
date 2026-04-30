@@ -3,3 +3,5 @@ dist/
 *.log
 *.tmp
 .DS_Store
+.atl/
+coverage/

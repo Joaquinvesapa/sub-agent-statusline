@@ -28,6 +28,9 @@
     "build": "tsup",
     "prepack": "pnpm run build",
     "release": "semantic-release",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev": "tsup --watch"
   },
@@ -50,10 +53,12 @@
     "@semantic-release/npm": "^12.0.2",
     "@semantic-release/release-notes-generator": "^14.1.0",
     "@types/node": "^22.15.21",
+    "@vitest/coverage-v8": "^4.1.5",
     "esbuild-plugin-solid": "^0.6.0",
     "semantic-release": "^24.2.9",
     "tsup": "^8.5.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.5"
   },
   "release": {
     "branches": [

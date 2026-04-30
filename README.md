@@ -111,8 +111,25 @@ Useful commands:
 ```sh
 pnpm build
 pnpm typecheck
+pnpm test
+pnpm test:watch
+pnpm test:coverage
 pnpm pack --dry-run
 ```
+
+## Testing
+
+Automated tests use Vitest with `@vitest/coverage-v8`:
+
+```sh
+pnpm test
+pnpm test:watch
+pnpm test:coverage
+pnpm typecheck
+```
+
+For the testing strategy, file map, examples, and current TUI/e2e boundaries, see
+[`docs/testing.md`](docs/testing.md).
 
 ---
 

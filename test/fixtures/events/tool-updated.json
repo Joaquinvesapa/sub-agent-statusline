@@ -1,0 +1,30 @@
+{
+  "type": "message.part.updated",
+  "properties": {
+    "title": "Delegation: tester",
+    "part": {
+      "type": "tool",
+      "tool": "delegate",
+      "id": "part_1",
+      "sessionID": "ses_parent_1",
+      "messageID": "msg_1",
+      "state": {
+        "status": "running",
+        "input": {
+          "description": "Investigate flaky tests",
+          "subagent_type": "tester",
+          "prompt": "Investigate why tests are flaky and report findings. Include commands run."
+        },
+        "time": {
+          "started": "2026-04-30T10:01:00.000Z",
+          "updated": "2026-04-30T10:02:00.000Z"
+        },
+        "usage": {
+          "inputTokens": 1000,
+          "outputTokens": 250,
+          "contextPercent": 0.42
+        }
+      }
+    }
+  }
+}

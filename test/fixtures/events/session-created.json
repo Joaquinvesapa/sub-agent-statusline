@@ -1,0 +1,14 @@
+{
+  "type": "session.created",
+  "properties": {
+    "info": {
+      "id": "ses_child_1",
+      "parentID": "ses_parent_1",
+      "title": "Review auth changes",
+      "agent": "reviewer",
+      "time": {
+        "created": "2026-04-30T10:00:00.000Z"
+      }
+    }
+  }
+}
