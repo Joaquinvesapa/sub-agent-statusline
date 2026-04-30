@@ -66,6 +66,25 @@ The TUI plugin adds a sidebar section that shows:
 
 It also adds a small home/footer summary when there is active subagent activity.
 
+## Keyboard navigation
+
+Run `Subagents: Focus sidebar list` from the OpenCode command palette, or press
+`Alt+B`, to focus the subagent sidebar list without using the mouse. List
+navigation shortcuts are handled only while the sidebar list is focused.
+
+| Shortcut | Action |
+| --- | --- |
+| `Alt+B` | Toggle focus between the subagent sidebar list and the prompt. |
+| `j` / `ArrowDown` | Move selection to the next visible subagent. |
+| `k` / `ArrowUp` | Move selection to the previous visible subagent. |
+| `Enter` | Open the selected subagent session. |
+| `h` / `ArrowLeft` | Collapse the subagent section. |
+| `l` / `ArrowRight` | Expand the subagent section. |
+| `Esc` | Leave list focus mode and return to the prompt. |
+
+Opening a selected session is a no-op when there is no visible or navigable
+subagent.
+
 ---
 
 ## Local development

@@ -2,10 +2,12 @@ import type {
   TuiPlugin,
   TuiPluginApi,
   TuiPluginModule,
+  TuiPromptRef,
   TuiSlotContext,
   TuiThemeCurrent,
 } from "@opencode-ai/plugin/tui";
-import type { ScrollBoxRenderable } from "@opentui/core";
+import type { BoxRenderable, KeyEvent, ScrollBoxRenderable } from "@opentui/core";
+import { useKeyboard } from "@opentui/solid";
 import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
@@ -109,7 +111,34 @@ interface SidebarScrollRegistration {
   offsetTop: number;
 }
 
+interface SidebarListFocusRegistration {
+  focusList: (preferredChildID?: string) => boolean;
+  blurList: () => boolean;
+  isListFocusModeActive: () => boolean;
+}
+
 const sidebarScrollRegistrations = new Set<SidebarScrollRegistration>();
+const sidebarListFocusRegistrations = new Set<SidebarListFocusRegistration>();
+
+function focusVisibleSidebarSubagentList(preferredChildID?: string): boolean {
+  for (const registration of [...sidebarListFocusRegistrations].reverse()) {
+    if (registration.focusList(preferredChildID)) return true;
+  }
+  return false;
+}
+
+function blurVisibleSidebarSubagentList(): boolean {
+  for (const registration of [...sidebarListFocusRegistrations].reverse()) {
+    if (registration.blurList()) return true;
+  }
+  return false;
+}
+
+function isAnySidebarSubagentListFocused(): boolean {
+  return [...sidebarListFocusRegistrations].some((registration) =>
+    registration.isListFocusModeActive(),
+  );
+}
 
 function maxScrollTop(scrollbox: ScrollBoxRenderable): number {
   return Math.max(0, scrollbox.scrollHeight - scrollbox.viewport.height);
@@ -129,6 +158,26 @@ function snapshotSidebarScrollOffsets(): void {
 
 type SidebarContentContext = TuiSlotContext & { session_id?: string };
 type HomeBottomContext = TuiSlotContext;
+type PromptRefProp =
+  | ((ref: TuiPromptRef | undefined) => void)
+  | { current?: TuiPromptRef | undefined }
+  | undefined;
+type HomePromptProps = {
+  workspaceID?: string;
+  workspace_id?: string;
+  ref?: PromptRefProp;
+  [key: string]: unknown;
+};
+type SessionPromptProps = {
+  sessionID?: string;
+  session_id?: string;
+  visible?: boolean;
+  disabled?: boolean;
+  onSubmit?: () => void;
+  on_submit?: () => void;
+  ref?: PromptRefProp;
+  [key: string]: unknown;
+};
 
 interface RehydratedTokenCacheEntry {
   attempts: number;
@@ -854,6 +903,14 @@ function SidebarSubagents(props: {
   nowMs: () => number;
   expanded: () => boolean;
   onToggleExpanded: () => void;
+  onSetExpanded: (expanded: boolean) => void;
+  onReturnFocus: () => void;
+  onToggleListFocus: () => void;
+  onNavigateToChild: (input: {
+    parentSessionID: string;
+    childSessionID: string;
+    childRowID: string;
+  }) => void;
   sidebarWidth?: () => number | undefined;
   theme: TuiThemeCurrent;
 }) {
@@ -899,6 +956,9 @@ function SidebarSubagents(props: {
   const visibleChildIDs = createMemo(() =>
     visibleChildren().map((child) => child.id),
   );
+  const [selectedChildID, setSelectedChildID] = createSignal<string | undefined>();
+  const [listFocused, setListFocused] = createSignal(false);
+  const [listFocusModeActive, setListFocusModeActive] = createSignal(false);
 
   const visibleChildLayoutSignature = createMemo(() =>
     visibleChildren()
@@ -929,6 +989,7 @@ function SidebarSubagents(props: {
     return Math.max(1, Math.min(SUBAGENTS_MAX_LIST_HEIGHT, contentHeight));
   });
 
+  let listContainer: BoxRenderable | undefined;
   let scrollbox: ScrollBoxRenderable | undefined;
   let restoreScrollTimeout: ReturnType<typeof setTimeout> | undefined;
   const scrollRegistration: SidebarScrollRegistration = {
@@ -936,10 +997,157 @@ function SidebarSubagents(props: {
     offsetTop: 0,
   };
   sidebarScrollRegistrations.add(scrollRegistration);
+  const focusRegistration: SidebarListFocusRegistration = {
+    focusList: (preferredChildID?: string) => {
+      if (!listContainer) return false;
+      const ids = visibleChildIDs();
+      if (preferredChildID && ids.includes(preferredChildID)) {
+        setSelectedChildID(preferredChildID);
+      } else if (!selectedChildID() && ids[0]) {
+        setSelectedChildID(ids[0]);
+      }
+      listContainer.focus();
+      setListFocused(true);
+      setListFocusModeActive(true);
+      return true;
+    },
+    blurList: () => {
+      if (!listFocused() && !listFocusModeActive()) return false;
+      listContainer?.blur();
+      setListFocused(false);
+      setListFocusModeActive(false);
+      return true;
+    },
+    isListFocusModeActive: () => listFocusModeActive(),
+  };
+  sidebarListFocusRegistrations.add(focusRegistration);
   onCleanup(() => {
     sidebarScrollRegistrations.delete(scrollRegistration);
+    sidebarListFocusRegistrations.delete(focusRegistration);
     if (restoreScrollTimeout) clearTimeout(restoreScrollTimeout);
   });
+
+  createEffect(() => {
+    const ids = visibleChildIDs();
+    const current = selectedChildID();
+    if (ids.length === 0) {
+      if (current) setSelectedChildID(undefined);
+      return;
+    }
+    if (!current || !ids.includes(current)) setSelectedChildID(ids[0]);
+  });
+
+  const refreshListFocused = (): void => {
+    if (listFocused() && !listContainer) {
+      setListFocused(false);
+      return;
+    }
+    const focused = Boolean(
+      listContainer?.focused || listContainer?.hasFocusedDescendant,
+    );
+    if (!focused && listFocused()) setListFocused(false);
+  };
+
+  const rowTopForIndex = (index: number): number => {
+    let top = showingOtherSessions() ? 1 : 0;
+    for (let i = 0; i < index; i += 1) {
+      const child = visibleChildren()[i];
+      if (child) top += subagentRowHeight(child) + SUBAGENTS_ROW_GAP;
+    }
+    return top;
+  };
+
+  const scrollSelectedChildIntoView = (): void => {
+    if (!scrollbox) return;
+    const selectedIndex = visibleChildIDs().findIndex(
+      (id) => id === selectedChildID(),
+    );
+    if (selectedIndex < 0) return;
+    const selectedChild = visibleChildren()[selectedIndex];
+    if (!selectedChild) return;
+
+    const rowTop = rowTopForIndex(selectedIndex);
+    const rowBottom = rowTop + subagentRowHeight(selectedChild);
+    const viewportTop = scrollbox.scrollTop;
+    const viewportBottom = viewportTop + listHeight();
+
+    if (rowTop < viewportTop) {
+      scrollbox.scrollTop = clampedScrollTop(scrollbox, rowTop);
+    } else if (rowBottom > viewportBottom) {
+      scrollbox.scrollTop = clampedScrollTop(scrollbox, rowBottom - listHeight());
+    }
+  };
+
+  const moveSelection = (delta: number): void => {
+    const ids = visibleChildIDs();
+    if (ids.length === 0) return;
+    const currentIndex = ids.findIndex((id) => id === selectedChildID());
+    const fallbackIndex = delta > 0 ? 0 : ids.length - 1;
+    const nextIndex = Math.max(
+      0,
+      Math.min(ids.length - 1, currentIndex < 0 ? fallbackIndex : currentIndex + delta),
+    );
+    setSelectedChildID(ids[nextIndex]);
+  };
+
+  const rowActivations = new Map<string, () => void>();
+
+  const resolveNavigableChildTargetSessionID = (
+    child: ChildSessionState,
+  ): string | undefined =>
+    resolveChildTargetSessionID(child) ??
+    resolveSyntheticTargetFromHydratedState(props.state(), child);
+
+  const selectedTargetSessionID = (): string | undefined => {
+    const selected = visibleChildren().find(
+      (child) => child.id === selectedChildID(),
+    );
+    return selected ? resolveNavigableChildTargetSessionID(selected) : undefined;
+  };
+
+  const activateSelectedChild = (): void => {
+    const selectedID = selectedChildID();
+    const activateRow = selectedID ? rowActivations.get(selectedID) : undefined;
+    if (activateRow) {
+      activateRow();
+      return;
+    }
+    navigateToSessionTarget(props.api, selectedTargetSessionID());
+  };
+
+  createEffect(() => {
+    selectedChildID();
+    listHeight();
+    scrollSelectedChildIntoView();
+  });
+
+  const handleListKeyDown = (event: KeyEvent): void => {
+    if (!listFocused()) return;
+    const name = event.name.toLowerCase();
+    if ((event.meta || event.option) && name === "b") {
+      props.onToggleListFocus();
+    } else if (name === "j" || name === "down" || name === "arrowdown") {
+      moveSelection(1);
+    } else if (name === "k" || name === "up" || name === "arrowup") {
+      moveSelection(-1);
+    } else if (name === "return" || name === "enter") {
+      activateSelectedChild();
+    } else if (name === "h" || name === "left" || name === "arrowleft") {
+      if (props.expanded()) props.onSetExpanded(false);
+    } else if (name === "l" || name === "right" || name === "arrowright") {
+      if (!props.expanded()) props.onSetExpanded(true);
+    } else if (name === "escape" || name === "esc") {
+      focusRegistration.blurList();
+      props.onReturnFocus();
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  useKeyboard(handleListKeyDown);
 
   createEffect(() => {
     props.expanded();
@@ -966,11 +1174,16 @@ function SidebarSubagents(props: {
     const [focused, setFocused] = createSignal(false);
     const targetSessionID = createMemo(() => {
       const currentChild = child();
-      return currentChild ? resolveChildTargetSessionID(currentChild) : undefined;
+      return currentChild
+        ? resolveNavigableChildTargetSessionID(currentChild)
+        : undefined;
     });
     const clickable = createMemo(() => isSessionTarget(targetSessionID()));
+    const selected = createMemo(
+      () => listFocused() && selectedChildID() === rowProps.childID,
+    );
     const emphasized = createMemo(
-      () => clickable() && (hovered() || focused()),
+      () => clickable() && (hovered() || focused() || selected()),
     );
     const status = createMemo<ChildSessionState["status"]>(
       () => child()?.status ?? "running",
@@ -1011,13 +1224,28 @@ function SidebarSubagents(props: {
         ? SUBAGENTS_RUNNING_ROW_HEIGHT
         : SUBAGENTS_RUNNING_ROW_HEIGHT - 1;
     });
-    const activate = () =>
-      navigateToSessionTarget(props.api, targetSessionID());
-    const handleKeyDown = (event: { name: string }): void => {
+    const activate = () => {
+      const target = targetSessionID();
+      if (target) {
+        props.onNavigateToChild({
+          parentSessionID: props.sessionID,
+          childSessionID: target,
+          childRowID: rowProps.childID,
+        });
+      }
+      navigateToSessionTarget(props.api, target);
+    };
+    rowActivations.set(rowProps.childID, activate);
+    onCleanup(() => {
+      rowActivations.delete(rowProps.childID);
+    });
+    const handleKeyDown = (event: KeyEvent): void => {
       if (!clickable()) return;
       setFocused(true);
       if (event.name === "return" || event.name === "space") {
         activate();
+        event.preventDefault();
+        event.stopPropagation();
       }
     };
 
@@ -1026,6 +1254,7 @@ function SidebarSubagents(props: {
         flexDirection="column"
         height={rowHeight()}
         opacity={rowOpacity()}
+        backgroundColor={selected() ? props.theme.backgroundElement : undefined}
         onMouseOver={clickable() ? () => setHovered(true) : undefined}
         onMouseOut={
           clickable()
@@ -1035,7 +1264,14 @@ function SidebarSubagents(props: {
               }
             : undefined
         }
-        onMouseDown={clickable() ? activate : undefined}
+        onMouseDown={
+          clickable()
+            ? () => {
+                setSelectedChildID(rowProps.childID);
+                activate();
+              }
+            : undefined
+        }
         onKeyDown={clickable() ? handleKeyDown : undefined}
         focusable={clickable()}
         focused={clickable() && focused()}
@@ -1045,11 +1281,20 @@ function SidebarSubagents(props: {
           fallback={
             <box flexDirection="column">
               <box flexDirection="row">
+                <text fg={selected() ? props.theme.accent : props.theme.textMuted}>
+                  {selected() ? "›" : " "}
+                </text>
                 <text fg={statusColor(status(), props.theme)}>
                   {taskStatusMarker(status())}
                 </text>
                 <text
-                  fg={muted() ? props.theme.textMuted : props.theme.text}
+                  fg={
+                    selected()
+                      ? props.theme.text
+                      : muted()
+                        ? props.theme.textMuted
+                        : props.theme.text
+                  }
                 >{` ${terminalLine().label}`}</text>
               </box>
               <text
@@ -1060,11 +1305,20 @@ function SidebarSubagents(props: {
         >
           <box flexDirection="column">
             <box flexDirection="row">
+              <text fg={selected() ? props.theme.accent : props.theme.textMuted}>
+                {selected() ? "›" : " "}
+              </text>
               <text fg={statusColor(status(), props.theme)}>
                 {taskStatusMarker(status())}
               </text>
               <text
-                fg={muted() ? props.theme.textMuted : props.theme.text}
+                fg={
+                  selected()
+                    ? props.theme.text
+                    : muted()
+                      ? props.theme.textMuted
+                      : props.theme.text
+                }
               >{` ${line().labelLines[0] ?? ""}`}</text>
             </box>
             <Show when={line().secondaryLine}>
@@ -1103,7 +1357,17 @@ function SidebarSubagents(props: {
   );
 
   return (
-    <box flexDirection="column">
+    <box
+      ref={(element) => {
+        listContainer = element;
+        if (!element) setListFocused(false);
+      }}
+      flexDirection="column"
+      backgroundColor={listFocused() ? props.theme.backgroundPanel : undefined}
+      focusable
+      focused={listFocused()}
+      renderBefore={refreshListFocused}
+    >
       <box flexDirection="row">
         <text
           fg={props.theme.text}
@@ -1704,6 +1968,39 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
   let lastRunningReconcileAtMs = 0;
   let disposed = false;
   let previousRouteSessionID: string | undefined;
+  let pendingSidebarRefocus:
+    | { parentSessionID: string; childSessionID: string; childRowID: string }
+    | undefined;
+  let activePromptRef: TuiPromptRef | undefined;
+
+  const setActivePromptRef = (ref: TuiPromptRef | undefined): void => {
+    activePromptRef = ref;
+  };
+
+  const composePromptRef = (slotRef: PromptRefProp) => {
+    return (ref: TuiPromptRef | undefined): void => {
+      setActivePromptRef(ref);
+      if (typeof slotRef === "function") {
+        slotRef(ref);
+      } else if (slotRef && "current" in slotRef) {
+        slotRef.current = ref;
+      }
+    };
+  };
+
+  const focusActivePrompt = (): void => {
+    setTimeout(() => {
+      activePromptRef?.focus();
+    }, 0);
+  };
+
+  const rememberSidebarChildNavigation = (input: {
+    parentSessionID: string;
+    childSessionID: string;
+    childRowID: string;
+  }): void => {
+    pendingSidebarRefocus = input;
+  };
 
   const setSubagentsExpandedPreference = (expanded: boolean): void => {
     setSubagentsExpanded(expanded);
@@ -1712,6 +2009,11 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
       variant: "info",
       message: expanded ? "Subagent list expanded" : "Subagent list collapsed",
     });
+  };
+
+  const setSubagentsExpandedSilently = (expanded: boolean): void => {
+    setSubagentsExpanded(expanded);
+    api.kv.set(SUBAGENTS_EXPANDED_KV_KEY, expanded);
   };
 
   const setSubagentsSectionEnabledPreference = (enabled: boolean): void => {
@@ -1725,6 +2027,23 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
     });
   };
 
+  const toggleSidebarListFocus = (): void => {
+    api.ui.dialog.clear();
+    if (isAnySidebarSubagentListFocused()) {
+      blurVisibleSidebarSubagentList();
+      focusActivePrompt();
+      return;
+    }
+
+    setSubagentsSectionEnabled(true);
+    setSubagentsExpanded(true);
+    api.kv.set(SUBAGENTS_SECTION_ENABLED_KV_KEY, true);
+    api.kv.set(SUBAGENTS_EXPANDED_KV_KEY, true);
+    setTimeout(() => {
+      focusVisibleSidebarSubagentList();
+    }, 0);
+  };
+
   const commandDispose = api.command.register(() => [
     {
       title: subagentsSectionEnabled()
@@ -1735,6 +2054,14 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
       category: "Subagents",
       onSelect: () =>
         setSubagentsSectionEnabledPreference(!subagentsSectionEnabled()),
+    },
+    {
+      title: "Subagents: Focus sidebar list",
+      value: "subagent-statusline.focus-sidebar-list",
+      description: "Focus the subagent sidebar list for keyboard navigation",
+      category: "Subagents",
+      keybind: "alt+b",
+      onSelect: toggleSidebarListFocus,
     },
   ]);
 
@@ -1771,6 +2098,22 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
     if (previousRouteSessionID && previousRouteSessionID !== routeSessionID) {
       resetHydrateRetry(previousRouteSessionID);
     }
+
+    if (pendingSidebarRefocus && previousRouteSessionID !== routeSessionID) {
+      if (
+        previousRouteSessionID === pendingSidebarRefocus.childSessionID &&
+        routeSessionID === pendingSidebarRefocus.parentSessionID
+      ) {
+        const childRowID = pendingSidebarRefocus.childRowID;
+        pendingSidebarRefocus = undefined;
+        setTimeout(() => {
+          focusVisibleSidebarSubagentList(childRowID);
+        }, 0);
+      } else if (routeSessionID !== pendingSidebarRefocus.childSessionID) {
+        pendingSidebarRefocus = undefined;
+      }
+    }
+
     previousRouteSessionID = routeSessionID;
 
     if (!routeSessionID) return;
@@ -2077,6 +2420,10 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
               onToggleExpanded={() =>
                 setSubagentsExpandedPreference(!subagentsExpanded())
               }
+              onSetExpanded={setSubagentsExpandedSilently}
+              onReturnFocus={focusActivePrompt}
+              onToggleListFocus={toggleSidebarListFocus}
+              onNavigateToChild={rememberSidebarChildNavigation}
               sidebarWidth={() => resolveSidebarWidth(ctx)}
               theme={ctx.theme.current}
             />
@@ -2085,6 +2432,29 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
       },
       home_bottom(ctx: HomeBottomContext) {
         return <HomeBottomStatus state={state} theme={ctx.theme.current} />;
+      },
+      home_prompt(_ctx: TuiSlotContext, props: HomePromptProps) {
+        const promptProps = {
+          ...props,
+          ...(props.workspaceID === undefined && props.workspace_id !== undefined
+            ? { workspaceID: props.workspace_id }
+            : {}),
+          ref: composePromptRef(props.ref),
+        };
+        return <api.ui.Prompt {...promptProps} />;
+      },
+      session_prompt(_ctx: TuiSlotContext, props: SessionPromptProps) {
+        const promptProps = {
+          ...props,
+          ...(props.sessionID === undefined && props.session_id !== undefined
+            ? { sessionID: props.session_id }
+            : {}),
+          ...(props.onSubmit === undefined && props.on_submit !== undefined
+            ? { onSubmit: props.on_submit }
+            : {}),
+          ref: composePromptRef(props.ref),
+        };
+        return <api.ui.Prompt {...promptProps} />;
       },
     },
   });
