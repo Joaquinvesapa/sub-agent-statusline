@@ -15,6 +15,7 @@ import {
   readdirSync,
 } from "node:fs";
 import { writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -74,6 +75,8 @@ const RUNNING_RECONCILE_OLD_CANDIDATE_AGE_MS = 5 * 60_000;
 const DEFAULT_STALE_RUNNING_THRESHOLD_MS = 24 * 60 * 60_000;
 const CLOCK_ICON = "";
 const TOKEN_ICON = "";
+const SIDEBAR_ARROW_EXPANDED = "▼";
+const SIDEBAR_ARROW_COLLAPSED = "▶";
 const SUBAGENTS_EXPANDED_KV_KEY = "subagents.sidebar.expanded";
 const SUBAGENTS_SECTION_ENABLED_KV_KEY = "subagents.sidebar.enabled";
 const SUBAGENTS_MAX_VISIBLE_ROWS = 5;
@@ -84,6 +87,22 @@ const SUBAGENTS_MAX_LIST_HEIGHT =
   SUBAGENTS_MAX_VISIBLE_ROWS * SUBAGENTS_RUNNING_ROW_HEIGHT +
   (SUBAGENTS_MAX_VISIBLE_ROWS - 1) * SUBAGENTS_ROW_GAP;
 const INACTIVE_SUBAGENT_OPACITY = 0.65;
+const SIDEBAR_VERSION_OPACITY = 0.7;
+
+const packageRequire = createRequire(import.meta.url);
+
+function readPluginVersion(): string | undefined {
+  try {
+    const metadata = packageRequire("../package.json") as { version?: unknown };
+    return typeof metadata.version === "string" && metadata.version.length > 0
+      ? metadata.version
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const PLUGIN_VERSION = readPluginVersion();
 
 interface SidebarScrollRegistration {
   getScrollbox: () => ScrollBoxRenderable | undefined;
@@ -1085,11 +1104,23 @@ function SidebarSubagents(props: {
 
   return (
     <box flexDirection="column">
-      <text
-        fg={props.theme.text}
-        selectable={false}
-        onMouseDown={props.onToggleExpanded}
-      >{`${props.expanded() ? "▾" : "▸"} Subagents`}</text>
+      <box flexDirection="row">
+        <text
+          fg={props.theme.text}
+          selectable={false}
+          onMouseDown={props.onToggleExpanded}
+        >{`${props.expanded() ? SIDEBAR_ARROW_EXPANDED : SIDEBAR_ARROW_COLLAPSED} Subagentes`}</text>
+        <Show when={PLUGIN_VERSION}>
+          {(version: Accessor<string>) => (
+            <text
+              fg={props.theme.textMuted}
+              opacity={SIDEBAR_VERSION_OPACITY}
+              selectable={false}
+              onMouseDown={props.onToggleExpanded}
+            >{` ${version()}`}</text>
+          )}
+        </Show>
+      </box>
       <AggregateBar />
 
       <Show when={props.expanded()}>
