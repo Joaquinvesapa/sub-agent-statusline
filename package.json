@@ -1,6 +1,6 @@
 {
   "name": "opencode-subagent-statusline",
-  "version": "0.3.0",
+  "version": "0.5.3",
   "description": "OpenCode plugin that exposes subagent session statusline state",
   "type": "module",
   "main": "./dist/tui.js",
@@ -49,7 +49,6 @@
   },
   "devDependencies": {
     "@semantic-release/commit-analyzer": "^13.0.1",
-    "@semantic-release/git": "^10.0.1",
     "@semantic-release/github": "^11.0.6",
     "@semantic-release/npm": "^12.0.2",
     "@semantic-release/release-notes-generator": "^14.1.0",
@@ -69,16 +68,6 @@
       "@semantic-release/commit-analyzer",
       "@semantic-release/release-notes-generator",
       "@semantic-release/npm",
-      [
-        "@semantic-release/git",
-        {
-          "assets": [
-            "package.json",
-            "pnpm-lock.yaml"
-          ],
-          "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
-        }
-      ],
       "@semantic-release/github"
     ]
   }
