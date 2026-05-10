@@ -12,6 +12,76 @@ export type RunningReconcileEvidence = {
   canApplyStaleFallback?: boolean;
 };
 
+export type OpenCodeSessionChildStatus = "running" | "done" | "error";
+
+const DEFAULT_STALE_RUNNING_THRESHOLD_MS = 10 * 60 * 60_000;
+
+const RUNNING_SESSION_STATUS_VALUES = new Set([
+  "busy",
+  "running",
+  "pending",
+  "queued",
+  "in_progress",
+  "working",
+  "compacting",
+  "retry",
+]);
+
+const DONE_SESSION_STATUS_VALUES = new Set([
+  "idle",
+  "done",
+  "completed",
+  "complete",
+  "success",
+  "succeeded",
+]);
+
+const ERROR_SESSION_STATUS_VALUES = new Set([
+  "error",
+  "failed",
+  "failure",
+  "cancelled",
+  "canceled",
+  "aborted",
+]);
+
+export function defaultStaleRunningThresholdMs(): number {
+  return DEFAULT_STALE_RUNNING_THRESHOLD_MS;
+}
+
+export function parseStaleRunningThresholdMs(value: unknown): number {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return DEFAULT_STALE_RUNNING_THRESHOLD_MS;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return DEFAULT_STALE_RUNNING_THRESHOLD_MS;
+  }
+
+  return Math.floor(parsed);
+}
+
+export function deriveOpenCodeSessionStatus(
+  value: unknown,
+): OpenCodeSessionChildStatus | undefined {
+  const values = collectOpenCodeSessionStatusValues(value);
+
+  if (values.some((status) => ERROR_SESSION_STATUS_VALUES.has(status))) {
+    return "error";
+  }
+
+  if (values.some((status) => RUNNING_SESSION_STATUS_VALUES.has(status))) {
+    return "running";
+  }
+
+  if (values.some((status) => DONE_SESSION_STATUS_VALUES.has(status))) {
+    return "done";
+  }
+
+  return undefined;
+}
+
 export type PersistedStaleSubtaskCandidate = {
   childID: string;
   parentID: string;
@@ -294,6 +364,35 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function collectOpenCodeSessionStatusValues(value: unknown): string[] {
+  if (typeof value === "string") {
+    const normalized = normalizeStatusValue(value);
+    return normalized ? [normalized] : [];
+  }
+
+  const record = asRecord(value);
+  if (!record) return [];
+
+  const values = [
+    normalizeStatusValue(record.type),
+    normalizeStatusValue(record.status),
+    normalizeStatusValue(record.state),
+    normalizeStatusValue(record.phase),
+    normalizeStatusValue(record.result),
+  ].filter((status): status is string => Boolean(status));
+
+  if (record.error) values.push("error");
+  if (record.busy === true || record.running === true) values.push("busy");
+
+  return values;
+}
+
+function normalizeStatusValue(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function asString(value: unknown): string | undefined {

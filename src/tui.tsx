@@ -39,8 +39,10 @@ import {
 import {
   canSafelyCloseNoTargetPersistedCandidate,
   capCandidates,
+  deriveOpenCodeSessionStatus,
   hasRecentMessageActivity,
   nextBackoffState,
+  parseStaleRunningThresholdMs as parseConfiguredStaleRunningThresholdMs,
   resolvePersistedStaleSubtaskFromParentMessages,
   shouldApplyStaleRunningFallback,
   shouldSkipCandidateForBackoff,
@@ -78,7 +80,6 @@ const RUNNING_RECONCILE_INITIAL_BACKOFF_MS = 15_000;
 const RUNNING_RECONCILE_MAX_BACKOFF_MS = 5 * 60_000;
 const RUNNING_RECONCILE_MESSAGE_AGE_GATE_MS = 60_000;
 const RUNNING_RECONCILE_OLD_CANDIDATE_AGE_MS = 5 * 60_000;
-const DEFAULT_STALE_RUNNING_THRESHOLD_MS = 24 * 60 * 60_000;
 const CLOCK_ICON = "";
 const TOKEN_ICON = "";
 const SIDEBAR_ARROW_EXPANDED = "▼";
@@ -175,6 +176,7 @@ type HomePromptProps = {
 type SessionPromptProps = {
   sessionID?: string;
   session_id?: string;
+  right?: unknown;
   visible?: boolean;
   disabled?: boolean;
   onSubmit?: () => void;
@@ -663,17 +665,9 @@ function toFinitePositiveInt(value: unknown): number | undefined {
 }
 
 function parseStaleRunningThresholdMs(): number {
-  const raw = process.env.OPENCODE_SUBAGENT_STATUSLINE_STALE_RUNNING_MS;
-  if (typeof raw !== "string" || raw.trim().length === 0) {
-    return DEFAULT_STALE_RUNNING_THRESHOLD_MS;
-  }
-
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return DEFAULT_STALE_RUNNING_THRESHOLD_MS;
-  }
-
-  return Math.floor(parsed);
+  return parseConfiguredStaleRunningThresholdMs(
+    process.env.OPENCODE_SUBAGENT_STATUSLINE_STALE_RUNNING_MS,
+  );
 }
 
 const STALE_RUNNING_THRESHOLD_MS = parseStaleRunningThresholdMs();
@@ -1568,7 +1562,7 @@ async function hydratePreviousSubagents(
         };
         if (applySubagentEvent(next, fakeEvent)) changed = true;
 
-        const status = asRecord(allStatuses[session.id]);
+        const status = allStatuses[session.id];
         const sessionStatus = deriveSessionChildStatus(status);
         const childSummary = childMessageSummaryByID.get(session.id);
         const explicitCompletionEvidence =
@@ -1683,70 +1677,10 @@ async function safeReadAsync<Value>(
   }
 }
 
-function normalizedSessionStatusValue(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const normalized = value.trim().toLowerCase();
-  return normalized.length > 0 ? normalized : undefined;
-}
-
 function deriveSessionChildStatus(
-  status: Record<string, unknown> | undefined,
+  status: unknown,
 ): ChildSessionState["status"] | undefined {
-  if (!status) return undefined;
-
-  if (status.error) return "error";
-
-  const values = [
-    normalizedSessionStatusValue(status.type),
-    normalizedSessionStatusValue(status.status),
-    normalizedSessionStatusValue(status.state),
-    normalizedSessionStatusValue(status.phase),
-    normalizedSessionStatusValue(status.result),
-  ].filter((value): value is string => Boolean(value));
-
-  if (status.busy === true || status.running === true) {
-    values.push("busy");
-  }
-
-  if (
-    values.some((value) =>
-      [
-        "error",
-        "failed",
-        "failure",
-        "cancelled",
-        "canceled",
-        "aborted",
-      ].includes(value),
-    )
-  ) {
-    return "error";
-  }
-
-  if (
-    values.some((value) =>
-      ["busy", "running", "pending", "queued", "in_progress"].includes(value),
-    )
-  ) {
-    return "running";
-  }
-
-  if (
-    values.some((value) =>
-      [
-        "done",
-        "completed",
-        "complete",
-        "success",
-        "succeeded",
-        "idle",
-      ].includes(value),
-    )
-  ) {
-    return "done";
-  }
-
-  return undefined;
+  return deriveOpenCodeSessionStatus(status);
 }
 
 function sessionTimestamp(
@@ -1886,7 +1820,7 @@ async function probeRunningEvidence(input: {
     input.api.state.session.status(input.targetSessionID),
   );
   if (directStatus === undefined) probeFailed = true;
-  const statusFromState = deriveSessionChildStatus(asRecord(directStatus));
+  const statusFromState = deriveSessionChildStatus(directStatus);
   if (statusFromState === "done" || statusFromState === "error") {
     return { status: statusFromState, endedAt: new Date().toISOString() };
   }
@@ -1899,9 +1833,7 @@ async function probeRunningEvidence(input: {
   );
   if (statusResp === undefined) probeFailed = true;
   const statuses = asRecord(statusResp?.data);
-  const statusFromClient = deriveSessionChildStatus(
-    asRecord(statuses?.[input.targetSessionID]),
-  );
+  const statusFromClient = deriveSessionChildStatus(statuses?.[input.targetSessionID]);
   if (statusFromClient === "done" || statusFromClient === "error") {
     return { status: statusFromClient, endedAt: new Date().toISOString() };
   }
@@ -2075,7 +2007,7 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
     }, 0);
   };
 
-  const commandDispose = api.command.register(() => [
+  const commandDispose = api.command?.register?.(() => [
     {
       title: subagentsSectionEnabled()
         ? "Subagents: Disable sidebar section"
@@ -2094,7 +2026,7 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
       keybind: "alt+b",
       onSelect: toggleSidebarListFocus,
     },
-  ]);
+  ]) ?? (() => undefined);
 
   const clearHydrateRetryTimeout = (sessionID: string): void => {
     const timeout = hydrateRetryTimeouts.get(sessionID);
@@ -2516,6 +2448,7 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
   const disposers = [
     api.event.on("session.created", applyEvent),
     api.event.on("session.updated", applyEvent),
+    api.event.on("session.status", applyEvent),
     api.event.on("session.idle", applyEvent),
     api.event.on("session.error", applyEvent),
     api.event.on("message.updated", applyEvent),
@@ -2583,6 +2516,7 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
         return <api.ui.Prompt {...promptProps} />;
       },
       session_prompt(_ctx: TuiSlotContext, props: SessionPromptProps) {
+        const sessionID = props.sessionID ?? props.session_id;
         const promptProps = {
           ...props,
           ...(props.sessionID === undefined && props.session_id !== undefined
@@ -2591,6 +2525,14 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
           ...(props.onSubmit === undefined && props.on_submit !== undefined
             ? { onSubmit: props.on_submit }
             : {}),
+          right:
+            props.right ??
+            (sessionID ? (
+              <api.ui.Slot
+                name="session_prompt_right"
+                session_id={sessionID}
+              />
+            ) : undefined),
           ref: composePromptRef(props.ref),
         };
         return <api.ui.Prompt {...promptProps} />;

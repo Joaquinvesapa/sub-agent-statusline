@@ -1,4 +1,5 @@
 import type { ChildTokenState, StatuslineState } from "./state.js";
+import { deriveOpenCodeSessionStatus } from "./reconcile.js";
 import { markChildStatus, upsertChildDetails, upsertRunningChild } from "./state.js";
 
 export type EventLike = {
@@ -7,6 +8,8 @@ export type EventLike = {
   name?: unknown;
   sessionID?: unknown;
   sessionId?: unknown;
+  status?: unknown;
+  state?: unknown;
   properties?: {
     id?: unknown;
     sessionID?: unknown;
@@ -24,9 +27,13 @@ export type EventLike = {
       parentID?: unknown;
       role?: unknown;
       time?: unknown;
+      status?: unknown;
+      state?: unknown;
     };
     parentID?: unknown;
     part?: unknown;
+    status?: unknown;
+    state?: unknown;
   };
   parentID?: unknown;
   [key: string]: unknown;
@@ -700,6 +707,30 @@ export function applySubagentEvent(state: StatuslineState, event: unknown): bool
     const endedAt = extractEventTimestamp(e, ["completed", "end", "ended", "updated"]);
     const details = extractChildDetails(e);
     let changed = markChildStatus(state, childID, "error", endedAt);
+    changed = upsertChildDetails(state, childID, details) || changed;
+    return changed;
+  }
+
+  if (type === "session.status") {
+    const childID = extractSessionID(e);
+    if (!childID) return false;
+    const status = deriveOpenCodeSessionStatus(
+      e.properties?.status ??
+        e.properties?.state ??
+        e.properties?.info?.status ??
+        e.status ??
+        e.state ??
+        e.properties,
+    );
+    if (!status) return false;
+
+    const endedAt =
+      status === "done" || status === "error"
+        ? extractEventTimestamp(e, ["completed", "end", "ended", "updated"])
+        : undefined;
+    const details = extractChildDetails(e);
+    let changed =
+      status === "running" ? false : markChildStatus(state, childID, status, endedAt);
     changed = upsertChildDetails(state, childID, details) || changed;
     return changed;
   }
