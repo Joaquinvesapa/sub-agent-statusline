@@ -88,6 +88,92 @@ describe("events", () => {
     expect(applySubagentEvent(state, null)).toBe(false);
     expect(state.children).toEqual({});
   });
+
+  it("maps session.status idle evidence to done", () => {
+    const state = createEmptyState();
+    applySubagentEvent(state, {
+      type: "session.created",
+      properties: {
+        info: {
+          id: "ses_child_status",
+          parentID: "ses_parent",
+          title: "Child status",
+          time: { created: "2026-05-10T10:00:00.000Z" },
+        },
+      },
+    });
+
+    const changed = applySubagentEvent(state, {
+      type: "session.status",
+      properties: {
+        sessionID: "ses_child_status",
+        status: "idle",
+        info: { time: { updated: "2026-05-10T10:15:00.000Z" } },
+      },
+    });
+
+    expect(changed).toBe(true);
+    expect(state.children.ses_child_status).toMatchObject({
+      status: "done",
+      endedAt: "2026-05-10T10:15:00.000Z",
+    });
+  });
+
+  it.each(["busy", "retry"])(
+    "keeps a running child active for session.status %s",
+    (status) => {
+      const state = createEmptyState();
+      applySubagentEvent(state, {
+        type: "session.created",
+        properties: {
+          info: {
+            id: "ses_child_running",
+            parentID: "ses_parent",
+            title: "Child running",
+          },
+        },
+      });
+
+      applySubagentEvent(state, {
+        type: "session.status",
+        properties: {
+          sessionID: "ses_child_running",
+          status,
+        },
+      });
+
+      expect(state.children.ses_child_running?.status).toBe("running");
+      expect(state.children.ses_child_running?.endedAt).toBeUndefined();
+    },
+  );
+
+  it("maps session.status terminal errors to error", () => {
+    const state = createEmptyState();
+    applySubagentEvent(state, {
+      type: "session.created",
+      properties: {
+        info: {
+          id: "ses_child_error",
+          parentID: "ses_parent",
+          title: "Child error",
+        },
+      },
+    });
+
+    applySubagentEvent(state, {
+      type: "session.status",
+      properties: {
+        sessionID: "ses_child_error",
+        status: "failed",
+        info: { time: { updated: "2026-05-10T10:20:00.000Z" } },
+      },
+    });
+
+    expect(state.children.ses_child_error).toMatchObject({
+      status: "error",
+      endedAt: "2026-05-10T10:20:00.000Z",
+    });
+  });
 });
 
 describe("extractTaskToolEvidence", () => {

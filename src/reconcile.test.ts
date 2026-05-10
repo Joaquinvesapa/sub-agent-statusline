@@ -2,14 +2,51 @@ import { describe, expect, it } from "vitest";
 import {
   canSafelyCloseNoTargetPersistedCandidate,
   capCandidates,
+  defaultStaleRunningThresholdMs,
+  deriveOpenCodeSessionStatus,
   hasRecentMessageActivity,
   nextBackoffState,
+  parseStaleRunningThresholdMs,
   resolvePersistedStaleSubtaskFromParentMessages,
   shouldApplyStaleRunningFallback,
   shouldSkipCandidateForBackoff,
   summarizeSessionMessages,
   type RunningReconcileEvidence,
 } from "./reconcile.js";
+
+describe("OpenCode session status normalization", () => {
+  it.each([
+    ["idle", "done"],
+    ["done", "done"],
+    ["completed", "done"],
+    ["success", "done"],
+    ["succeeded", "done"],
+    ["error", "error"],
+    ["failed", "error"],
+    ["cancelled", "error"],
+    ["aborted", "error"],
+    ["busy", "running"],
+    ["running", "running"],
+    ["pending", "running"],
+    ["queued", "running"],
+    ["in_progress", "running"],
+    ["working", "running"],
+    ["compacting", "running"],
+    ["retry", "running"],
+  ] as const)("maps %s to %s", (raw, expected) => {
+    expect(deriveOpenCodeSessionStatus(raw)).toBe(expected);
+  });
+
+  it("maps object-shaped evidence and leaves unknown values inconclusive", () => {
+    expect(deriveOpenCodeSessionStatus({ status: "working" })).toBe("running");
+    expect(deriveOpenCodeSessionStatus({ state: "idle" })).toBe("done");
+    expect(deriveOpenCodeSessionStatus({ error: { message: "boom" } })).toBe(
+      "error",
+    );
+    expect(deriveOpenCodeSessionStatus({ status: "mystery" })).toBeUndefined();
+    expect(deriveOpenCodeSessionStatus(undefined)).toBeUndefined();
+  });
+});
 
 describe("reconcile fail-closed fallback gating", () => {
   it("does not allow stale fallback when probes fail or are inconclusive", () => {
@@ -82,6 +119,18 @@ describe("terminal positive evidence", () => {
 });
 
 describe("stale fallback thresholds", () => {
+  it("defaults to approximately 10 hours and preserves override semantics", () => {
+    expect(defaultStaleRunningThresholdMs()).toBe(10 * 60 * 60_000);
+    expect(parseStaleRunningThresholdMs(undefined)).toBe(
+      defaultStaleRunningThresholdMs(),
+    );
+    expect(parseStaleRunningThresholdMs("not-a-number")).toBe(
+      defaultStaleRunningThresholdMs(),
+    );
+    expect(parseStaleRunningThresholdMs("1234.9")).toBe(1234);
+    expect(parseStaleRunningThresholdMs("0")).toBe(0);
+  });
+
   it("applies fallback only after threshold and only when probes succeeded", () => {
     const staleThresholdMs = 10_000;
     const succeeded: RunningReconcileEvidence = {
@@ -311,7 +360,7 @@ describe("persisted stale subtask recovery evidence", () => {
 describe("no-target persisted stale fallback safety", () => {
   it("allows closure only when stale and with no recent parent activity", () => {
     const nowMs = Date.now();
-    const staleThresholdMs = 24 * 60 * 60_000;
+    const staleThresholdMs = defaultStaleRunningThresholdMs();
 
     expect(
       canSafelyCloseNoTargetPersistedCandidate({
@@ -330,6 +379,15 @@ describe("no-target persisted stale fallback safety", () => {
         startedMs: staleThresholdMs + 1,
         updatedMs: staleThresholdMs + 1,
         latestMessageActivityAtMs: nowMs - 1_000,
+      }),
+    ).toBe(false);
+
+    expect(
+      canSafelyCloseNoTargetPersistedCandidate({
+        nowMs,
+        staleThresholdMs: 0,
+        startedMs: staleThresholdMs + 1,
+        updatedMs: staleThresholdMs + 1,
       }),
     ).toBe(false);
   });
