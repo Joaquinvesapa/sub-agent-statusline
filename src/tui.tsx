@@ -175,6 +175,7 @@ type HomePromptProps = {
 type SessionPromptProps = {
   sessionID?: string;
   session_id?: string;
+  right?: unknown;
   visible?: boolean;
   disabled?: boolean;
   onSubmit?: () => void;
@@ -2075,7 +2076,7 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
     }, 0);
   };
 
-  const commandDispose = api.command.register(() => [
+  const commandDispose = api.command?.register?.(() => [
     {
       title: subagentsSectionEnabled()
         ? "Subagents: Disable sidebar section"
@@ -2094,7 +2095,7 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
       keybind: "alt+b",
       onSelect: toggleSidebarListFocus,
     },
-  ]);
+  ]) ?? (() => undefined);
 
   const clearHydrateRetryTimeout = (sessionID: string): void => {
     const timeout = hydrateRetryTimeouts.get(sessionID);
@@ -2583,6 +2584,7 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
         return <api.ui.Prompt {...promptProps} />;
       },
       session_prompt(_ctx: TuiSlotContext, props: SessionPromptProps) {
+        const sessionID = props.sessionID ?? props.session_id;
         const promptProps = {
           ...props,
           ...(props.sessionID === undefined && props.session_id !== undefined
@@ -2591,6 +2593,14 @@ const tui: TuiPlugin = async (api: TuiPluginApi) => {
           ...(props.onSubmit === undefined && props.on_submit !== undefined
             ? { onSubmit: props.on_submit }
             : {}),
+          right:
+            props.right ??
+            (sessionID ? (
+              <api.ui.Slot
+                name="session_prompt_right"
+                session_id={sessionID}
+              />
+            ) : undefined),
           ref: composePromptRef(props.ref),
         };
         return <api.ui.Prompt {...promptProps} />;
