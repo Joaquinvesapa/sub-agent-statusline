@@ -81,7 +81,7 @@ describe("render", () => {
       }),
       child({
         id: "ses_sync_child",
-        title: "Child session with unrelated title",
+        title: "Run task cleanup",
         source: "session",
         targetSessionID: "ses_sync_child",
         messageID: undefined,

@@ -191,6 +191,7 @@ function sessionMatchesSynthetic(
   ) {
     return true;
   }
+  if (isGenericToolWrapper(synthetic)) return false;
   return (
     sameAgentName(session.agentName, synthetic.agentName) &&
     relatedWorkItemTitles(session.title, synthetic.title)
