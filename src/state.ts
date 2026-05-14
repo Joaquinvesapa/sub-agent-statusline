@@ -537,9 +537,14 @@ export async function loadState(statePath: string): Promise<StatuslineState> {
         source: candidate.source,
         targetSessionID,
       });
-      if (countIdentity) state.countedChildIDs[countIdentity] = true;
+      if (countIdentity && countIdentity !== id && state.countedChildIDs[id]) {
+        rekeyCountedExecution(state, id, countIdentity);
+      } else if (countIdentity) {
+        state.countedChildIDs[countIdentity] = true;
+      }
     }
 
+    normalizeExecutionCounters(state);
     refreshDerivedFields(state);
     return state;
   } catch {
