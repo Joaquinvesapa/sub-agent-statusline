@@ -119,33 +119,33 @@ describe("events", () => {
     });
   });
 
-  it.each(["busy", "retry"])(
-    "keeps a running child active for session.status %s",
-    (status) => {
-      const state = createEmptyState();
-      applySubagentEvent(state, {
-        type: "session.created",
-        properties: {
-          info: {
-            id: "ses_child_running",
-            parentID: "ses_parent",
-            title: "Child running",
-          },
+  it.each([
+    "busy",
+    "retry",
+  ])("keeps a running child active for session.status %s", (status) => {
+    const state = createEmptyState();
+    applySubagentEvent(state, {
+      type: "session.created",
+      properties: {
+        info: {
+          id: "ses_child_running",
+          parentID: "ses_parent",
+          title: "Child running",
         },
-      });
+      },
+    });
 
-      applySubagentEvent(state, {
-        type: "session.status",
-        properties: {
-          sessionID: "ses_child_running",
-          status,
-        },
-      });
+    applySubagentEvent(state, {
+      type: "session.status",
+      properties: {
+        sessionID: "ses_child_running",
+        status,
+      },
+    });
 
-      expect(state.children.ses_child_running?.status).toBe("running");
-      expect(state.children.ses_child_running?.endedAt).toBeUndefined();
-    },
-  );
+    expect(state.children.ses_child_running?.status).toBe("running");
+    expect(state.children.ses_child_running?.endedAt).toBeUndefined();
+  });
 
   it("maps session.status terminal errors to error", () => {
     const state = createEmptyState();
@@ -222,9 +222,86 @@ describe("extractTaskToolEvidence", () => {
       endedAt: "2026-04-30T12:05:00.000Z",
     });
   });
+
+  it("parses task session ids from output variants", () => {
+    expect(
+      extractTaskToolEvidence({
+        type: "message.part.updated",
+        properties: {
+          part: {
+            type: "tool",
+            tool: "task",
+            state: {
+              status: "completed",
+              output: "Task ID: ses_child_3",
+            },
+          },
+        },
+      })?.targetSessionID,
+    ).toBe("ses_child_3");
+
+    expect(
+      extractTaskToolEvidence({
+        type: "message.part.updated",
+        properties: {
+          part: {
+            type: "tool",
+            tool: "task",
+            state: {
+              status: "completed",
+              output: "finished session ses_child_4",
+            },
+          },
+        },
+      })?.targetSessionID,
+    ).toBe("ses_child_4");
+  });
 });
 
 describe("task tool to subtask mapping", () => {
+  it("backfills a synchronous task tool wrapper when its session appears later", () => {
+    const state = createEmptyState();
+
+    applySubagentEvent(state, {
+      type: "message.part.updated",
+      properties: {
+        sessionID: "ses_parent",
+        part: {
+          type: "tool",
+          tool: "task",
+          id: "tool_sync",
+          sessionID: "ses_parent",
+          messageID: "msg_sync",
+          state: {
+            status: "running",
+            input: { description: "Run sync task" },
+          },
+        },
+      },
+    });
+
+    expect(state.children["tool:tool_sync"]?.targetSessionID).toBeUndefined();
+    expect(state.totalExecuted).toBe(0);
+
+    applySubagentEvent(state, {
+      type: "session.created",
+      properties: {
+        info: {
+          id: "ses_sync_child",
+          parentID: "ses_parent",
+          title: "Child session with unrelated title",
+        },
+      },
+    });
+
+    expect(state.children["tool:tool_sync"]?.targetSessionID).toBe(
+      "ses_sync_child",
+    );
+    expect(state.totalExecuted).toBe(1);
+    expect(state.countedChildIDs.ses_sync_child).toBe(true);
+    expect(state.countedChildIDs["tool:tool_sync"]).toBeUndefined();
+  });
+
   it("maps completed task tool evidence to matching subtask row", () => {
     const state = createEmptyState();
     upsertSubtask(state, {
@@ -255,8 +332,12 @@ describe("task tool to subtask mapping", () => {
     });
 
     expect(state.children["subtask:sub_1"]?.status).toBe("done");
-    expect(state.children["subtask:sub_1"]?.targetSessionID).toBe("ses_child_1");
-    expect(state.children["subtask:sub_1"]?.endedAt).toBe("2026-04-30T12:00:00.000Z");
+    expect(state.children["subtask:sub_1"]?.targetSessionID).toBe(
+      "ses_child_1",
+    );
+    expect(state.children["subtask:sub_1"]?.endedAt).toBe(
+      "2026-04-30T12:00:00.000Z",
+    );
   });
 
   it("fails closed for ambiguous mapping", () => {
@@ -367,14 +448,14 @@ describe("task tool to subtask mapping", () => {
       },
     });
 
-    expect(state.children["subtask:prt_ddea56110001RtlmRJFV99PmiU"]?.status).toBe(
-      "done",
-    );
+    expect(
+      state.children["subtask:prt_ddea56110001RtlmRJFV99PmiU"]?.status,
+    ).toBe("done");
     expect(
       state.children["subtask:prt_ddea56110001RtlmRJFV99PmiU"]?.targetSessionID,
     ).toBe("ses_2215a9eceffelCOOb8v66cT2v0");
-    expect(state.children["subtask:prt_ddea56110001RtlmRJFV99PmiU"]?.endedAt).toBe(
-      "2026-04-30T12:20:00.000Z",
-    );
+    expect(
+      state.children["subtask:prt_ddea56110001RtlmRJFV99PmiU"]?.endedAt,
+    ).toBe("2026-04-30T12:20:00.000Z");
   });
 });
