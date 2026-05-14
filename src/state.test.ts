@@ -350,4 +350,51 @@ describe("state", () => {
     expect(loaded.countedChildIDs["tool:old"]).toBe(true);
     expect(loaded.countedChildIDs["tool:new"]).toBeUndefined();
   });
+
+  it("normalizes counters after loading missing counted ids", async () => {
+    const harness = await createRuntimeHarness();
+    await writeFile(
+      harness.statePath,
+      JSON.stringify({
+        children: {
+          ses_child: child({ id: "ses_child", source: "session" }),
+        },
+        countedChildIDs: {},
+        totalExecuted: 0,
+        updatedAt: "2026-04-30T10:00:00.000Z",
+      }),
+      "utf8",
+    );
+
+    const loaded = await loadState(harness.statePath);
+
+    expect(loaded.countedChildIDs.ses_child).toBe(true);
+    expect(loaded.totalExecuted).toBe(1);
+  });
+
+  it("rekeys historical counted subtasks to their loaded target session ids", async () => {
+    const harness = await createRuntimeHarness();
+    await writeFile(
+      harness.statePath,
+      JSON.stringify({
+        children: {
+          "subtask:old": child({
+            id: "subtask:old",
+            source: "subtask",
+            targetSessionID: "ses_child",
+          }),
+        },
+        countedChildIDs: { "subtask:old": true },
+        totalExecuted: 1,
+        updatedAt: "2026-04-30T10:00:00.000Z",
+      }),
+      "utf8",
+    );
+
+    const loaded = await loadState(harness.statePath);
+
+    expect(loaded.totalExecuted).toBe(1);
+    expect(loaded.countedChildIDs.ses_child).toBe(true);
+    expect(loaded.countedChildIDs["subtask:old"]).toBeUndefined();
+  });
 });
