@@ -100,28 +100,160 @@ function isTechnicalDelegationTitle(value: string | undefined): boolean {
   return /^delegation:\s+/i.test(value.trim());
 }
 
-function isCountableWorkItem(child: Pick<ChildSessionState, "id" | "title"> &
-  Partial<Pick<ChildSessionState, "source">>): boolean {
-  if (child.source === "tool" || child.source === "subtask") return true;
-  if (child.source === "session" || child.id.startsWith("ses_")) {
-    return !isTechnicalDelegationTitle(child.title);
+type CountableChildInput = Pick<
+  ChildSessionState,
+  "id" | "title" | "parentID"
+> &
+  Partial<Pick<ChildSessionState, "messageID" | "source" | "targetSessionID">>;
+
+function isRealSessionChild(
+  child: Pick<ChildSessionState, "id"> &
+    Partial<Pick<ChildSessionState, "source">>,
+): boolean {
+  return child.source === "session" || child.id.startsWith("ses_");
+}
+
+function isSyntheticToolWrapper(
+  child: Partial<Pick<ChildSessionState, "source">>,
+): boolean {
+  return child.source === "tool";
+}
+
+function isSubtaskFallback(
+  child: Partial<Pick<ChildSessionState, "source">>,
+): boolean {
+  return child.source === "subtask";
+}
+
+function matchingCorrelation(
+  left: Pick<ChildSessionState, "parentID"> &
+    Partial<Pick<ChildSessionState, "messageID">>,
+  right: Pick<ChildSessionState, "parentID"> &
+    Partial<Pick<ChildSessionState, "messageID">>,
+): boolean {
+  return Boolean(
+    left.messageID &&
+      right.messageID &&
+      left.parentID === right.parentID &&
+      left.messageID === right.messageID,
+  );
+}
+
+function findMatchingCountedSessionID(
+  state: StatuslineState,
+  subtask: CountableChildInput,
+): string | undefined {
+  if (
+    subtask.targetSessionID &&
+    state.countedChildIDs[subtask.targetSessionID]
+  ) {
+    return subtask.targetSessionID;
   }
+
+  const matchingSessionIDs = Object.values(state.children)
+    .filter((child) => isRealSessionChild(child))
+    .filter((child) => state.countedChildIDs[child.id])
+    .filter((child) => matchingCorrelation(subtask, child))
+    .map((child) => child.id);
+
+  return matchingSessionIDs.length === 1 ? matchingSessionIDs[0] : undefined;
+}
+
+function findMatchingCountedSubtaskID(
+  state: StatuslineState,
+  session: CountableChildInput,
+): string | undefined {
+  const matchingTargetSubtasks = Object.values(state.children)
+    .filter((child) => isSubtaskFallback(child))
+    .filter((child) => state.countedChildIDs[child.id])
+    .filter((child) => child.targetSessionID === session.id)
+    .map((child) => child.id);
+
+  if (matchingTargetSubtasks.length === 1) return matchingTargetSubtasks[0];
+
+  const matchingCorrelatedSubtasks = Object.values(state.children)
+    .filter((child) => isSubtaskFallback(child))
+    .filter((child) => state.countedChildIDs[child.id])
+    .filter((child) => matchingCorrelation(session, child))
+    .map((child) => child.id);
+
+  return matchingCorrelatedSubtasks.length === 1
+    ? matchingCorrelatedSubtasks[0]
+    : undefined;
+}
+
+function rekeyCountedExecution(
+  state: StatuslineState,
+  fromID: string,
+  toID: string,
+): boolean {
+  if (fromID === toID) return false;
+  normalizeExecutionCounters(state);
+  if (!state.countedChildIDs[fromID]) return false;
+
+  const toAlreadyCounted = Boolean(state.countedChildIDs[toID]);
+  delete state.countedChildIDs[fromID];
+  if (!toAlreadyCounted) {
+    state.countedChildIDs[toID] = true;
+    return true;
+  }
+
+  state.totalExecuted = Math.max(
+    Object.keys(state.countedChildIDs).length,
+    (toNonNegativeInteger(state.totalExecuted) ?? 0) - 1,
+  );
   return true;
 }
 
-function countChildExecution(state: StatuslineState, child: Pick<ChildSessionState, "id" | "title"> &
-  Partial<Pick<ChildSessionState, "source">>): boolean {
-  if (!isCountableWorkItem(child)) return false;
+function resolveExecutionCountIdentity(
+  state: StatuslineState,
+  child: CountableChildInput,
+): string | undefined {
+  if (isSyntheticToolWrapper(child)) return undefined;
+
+  if (isRealSessionChild(child)) {
+    if (isTechnicalDelegationTitle(child.title)) return undefined;
+    const matchingSubtaskID = findMatchingCountedSubtaskID(state, child);
+    if (matchingSubtaskID) {
+      rekeyCountedExecution(state, matchingSubtaskID, child.id);
+      return undefined;
+    }
+    return child.id;
+  }
+
+  if (isSubtaskFallback(child)) {
+    if (findMatchingCountedSessionID(state, child)) return undefined;
+    return child.targetSessionID ?? child.id;
+  }
+
+  return child.id;
+}
+
+function countChildExecution(
+  state: StatuslineState,
+  child: CountableChildInput,
+): boolean {
   normalizeExecutionCounters(state);
-  if (state.countedChildIDs[child.id]) return false;
+  const countIdentity = resolveExecutionCountIdentity(state, child);
+  if (!countIdentity) return false;
+  if (state.countedChildIDs[countIdentity]) return false;
 
   const previousTotal = Math.max(
     toNonNegativeInteger(state.totalExecuted) ?? 0,
     Object.keys(state.countedChildIDs).length,
   );
-  state.countedChildIDs[child.id] = true;
+  state.countedChildIDs[countIdentity] = true;
   state.totalExecuted = previousTotal + 1;
   return true;
+}
+
+function reconcileSubtaskTargetCount(
+  state: StatuslineState,
+  child: Pick<ChildSessionState, "id"> &
+    Partial<Pick<ChildSessionState, "source" | "targetSessionID">>,
+): boolean {
+  if (!isSubtaskFallback(child) || !child.targetSessionID) return false;
+  return rekeyCountedExecution(state, child.id, child.targetSessionID);
 }
 
 function sanitizeTokens(input: unknown): ChildTokenState | undefined {
@@ -195,7 +327,10 @@ function sanitizeSummary(value: unknown, title: string): string | undefined {
 
 function sanitizeAgentName(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
-  const agentName = value.replace(/^\((.*)\)$/, "$1").replace(/\s+/g, " ").trim();
+  const agentName = value
+    .replace(/^\((.*)\)$/, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
   return agentName || undefined;
 }
 
@@ -210,7 +345,9 @@ function resolveElapsedMs(child: ChildSessionState, nowMs: number): number {
 }
 
 function terminalReferenceMs(child: ChildSessionState): number {
-  const parsed = Date.parse(child.endedAt ?? child.updatedAt ?? child.startedAt);
+  const parsed = Date.parse(
+    child.endedAt ?? child.updatedAt ?? child.startedAt,
+  );
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
@@ -239,7 +376,9 @@ export function pruneTerminalChildren(
     return pruned;
   }
 
-  terminalChildren.sort((a, b) => b.referenceMs - a.referenceMs || a.id.localeCompare(b.id));
+  terminalChildren.sort(
+    (a, b) => b.referenceMs - a.referenceMs || a.id.localeCompare(b.id),
+  );
   for (const child of terminalChildren.slice(MAX_TERMINAL_CHILDREN)) {
     delete state.children[child.id];
     pruned += 1;
@@ -260,9 +399,13 @@ export function refreshDerivedFields(
   for (const [id, child] of Object.entries(state.children)) {
     const startedAt = safeTimestamp(child.startedAt, nowISO);
     const updatedAt = safeTimestamp(child.updatedAt, nowISO);
-    const endedAt = child.endedAt ? safeTimestamp(child.endedAt, updatedAt) : undefined;
+    const endedAt = child.endedAt
+      ? safeTimestamp(child.endedAt, updatedAt)
+      : undefined;
     const status =
-      child.status === "done" || child.status === "error" || child.status === "running"
+      child.status === "done" ||
+      child.status === "error" ||
+      child.status === "running"
         ? child.status
         : "running";
 
@@ -356,19 +499,10 @@ export async function loadState(statePath: string): Promise<StatuslineState> {
     }
 
     const children =
-      parsed.children && typeof parsed.children === "object" ? parsed.children : {};
-
+      parsed.children && typeof parsed.children === "object"
+        ? parsed.children
+        : {};
     const countedChildIDs = sanitizeCountedChildIDs(parsed.countedChildIDs);
-    for (const [id, child] of Object.entries(children)) {
-      const candidate = child as Partial<ChildSessionState>;
-      if (typeof candidate.title === "string" && isCountableWorkItem({
-        id,
-        title: candidate.title,
-        source: candidate.source,
-      })) {
-        countedChildIDs[id] = true;
-      }
-    }
 
     const state: StatuslineState = {
       children: children as Record<string, ChildSessionState>,
@@ -382,6 +516,29 @@ export async function loadState(statePath: string): Promise<StatuslineState> {
           ? parsed.updatedAt
           : new Date().toISOString(),
     };
+
+    for (const [id, child] of Object.entries(children)) {
+      const candidate = child as Partial<ChildSessionState>;
+      if (
+        typeof candidate.title !== "string" ||
+        typeof candidate.parentID !== "string"
+      ) {
+        continue;
+      }
+      const targetSessionID = sanitizeTargetSessionID(
+        candidate.targetSessionID,
+        id.startsWith("ses_") ? id : undefined,
+      );
+      const countIdentity = resolveExecutionCountIdentity(state, {
+        id,
+        title: candidate.title,
+        parentID: candidate.parentID,
+        messageID: candidate.messageID,
+        source: candidate.source,
+        targetSessionID,
+      });
+      if (countIdentity) state.countedChildIDs[countIdentity] = true;
+    }
 
     refreshDerivedFields(state);
     return state;
@@ -419,17 +576,21 @@ export function upsertRunningChild(
   const observedUpdatedAt = safeTimestamp(input.updatedAt, now);
   const observedStartedAt = safeTimestamp(input.startedAt, observedUpdatedAt);
   const existing = state.children[input.id];
+  const targetSessionID = sanitizeTargetSessionID(
+    input.targetSessionID ?? existing?.targetSessionID,
+    input.id.startsWith("ses_") ? input.id : undefined,
+  );
+  const source = input.source ?? existing?.source ?? "session";
   const counted = existing
     ? false
     : countChildExecution(state, {
         id: input.id,
         title: input.title,
-        source: input.source,
+        parentID: input.parentID,
+        messageID: input.messageID,
+        source,
+        targetSessionID,
       });
-  const targetSessionID = sanitizeTargetSessionID(
-    input.targetSessionID ?? existing?.targetSessionID,
-    input.id.startsWith("ses_") ? input.id : undefined,
-  );
   const shouldKeepCompletedTiming =
     existing?.status === "done" || existing?.status === "error";
   const next: ChildSessionState = {
@@ -441,7 +602,7 @@ export function upsertRunningChild(
     agentName: sanitizeAgentName(input.agentName) ?? existing?.agentName,
     parentID: input.parentID,
     messageID: input.messageID ?? existing?.messageID,
-    source: input.source ?? existing?.source ?? "session",
+    source,
     targetSessionID,
     status: shouldKeepCompletedTiming ? existing.status : "running",
     color: statusColor(shouldKeepCompletedTiming ? existing.status : "running"),
@@ -471,6 +632,7 @@ export function upsertRunningChild(
   }
 
   state.children[input.id] = next;
+  reconcileSubtaskTargetCount(state, next);
   state.updatedAt = observedUpdatedAt;
   return true;
 }
@@ -490,7 +652,7 @@ export function markChildStatus(
 
     const observedEndedAt = endedAt
       ? safeTimestamp(endedAt, now)
-      : child.endedAt ?? now;
+      : (child.endedAt ?? now);
 
     if (
       child.status === status &&
@@ -544,7 +706,8 @@ export function upsertChildDetails(
   const nextSummary =
     sanitizeSummary(input.summary, nextTitle) ??
     sanitizeSummary(existing.summary, nextTitle);
-  const nextAgentName = sanitizeAgentName(input.agentName) ?? existing.agentName;
+  const nextAgentName =
+    sanitizeAgentName(input.agentName) ?? existing.agentName;
   const mergedTokens = mergeTokens(existing.tokens, input.tokens);
   const nextTargetSessionID = sanitizeTargetSessionID(
     input.targetSessionID ?? existing.targetSessionID,
@@ -562,7 +725,7 @@ export function upsertChildDetails(
 
   const now = new Date().toISOString();
   const observedUpdatedAt = safeTimestamp(input.updatedAt, now);
-  state.children[childID] = {
+  const next: ChildSessionState = {
     ...existing,
     title: nextTitle,
     summary: nextSummary,
@@ -571,6 +734,8 @@ export function upsertChildDetails(
     targetSessionID: nextTargetSessionID,
     updatedAt: observedUpdatedAt,
   };
+  state.children[childID] = next;
+  reconcileSubtaskTargetCount(state, next);
   state.updatedAt = observedUpdatedAt;
   return true;
 }
