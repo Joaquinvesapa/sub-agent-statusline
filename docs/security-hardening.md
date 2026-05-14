@@ -54,7 +54,7 @@ La versión del package manager forma parte de la cadena de suministro. Si cada 
 
 ---
 
-## 3. `engines.node: >=20`
+## 3. `engines.node: >=22.13`
 
 **Qué se hizo**
 
@@ -62,13 +62,13 @@ En `package.json` se declaró:
 
 ```json
 "engines": {
-  "node": ">=20"
+  "node": ">=22.13"
 }
 ```
 
 **Por qué**
 
-El proyecto ya apunta a Node 20 en build/CI. Declararlo explícitamente evita que usuarios o CI corran el plugin en runtimes no probados.
+`pnpm@11.1.2` requiere Node.js `>=22.13` y usa módulos runtime como `node:sqlite` que no existen en Node 20. Declararlo explícitamente mantiene desarrollo, CI y release en un runtime compatible y probado.
 
 **Qué protege**
 

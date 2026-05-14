@@ -14,7 +14,7 @@ We aim to keep contributions simple, respectful, and easy to review.
 
 ### Requirements
 
-- Node.js 20+
+- Node.js 22.13+
 - pnpm 11.1.2
 
 ### Install
