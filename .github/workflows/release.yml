@@ -9,6 +9,7 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  id-token: write
 
 concurrency:
   group: release
@@ -27,7 +28,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11.1.2
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -37,11 +38,18 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level moderate
+
+      - name: Verify package contents
+        run: pnpm pack --dry-run
 
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
         run: pnpm exec semantic-release

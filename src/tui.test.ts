@@ -1,4 +1,8 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { readOpenCodeLogFileIfSmall } from "./logs.js";
 import { registerSubagentCommands } from "./tui-commands.js";
 
 describe("registerSubagentCommands", () => {
@@ -67,5 +71,19 @@ describe("registerSubagentCommands", () => {
     expect(register).toHaveBeenCalledOnce();
     result();
     expect(dispose).toHaveBeenCalledOnce();
+  });
+});
+
+describe("readOpenCodeLogFileIfSmall", () => {
+  it("skips oversized OpenCode logs before reading them synchronously", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "subagent-statusline-logs-"));
+    const smallLog = join(dir, "small.log");
+    const hugeLog = join(dir, "huge.log");
+
+    await writeFile(smallLog, "small log", "utf8");
+    await writeFile(hugeLog, `${"x".repeat(1024 * 1024)}x`, "utf8");
+
+    expect(readOpenCodeLogFileIfSmall(smallLog)).toBe("small log");
+    expect(readOpenCodeLogFileIfSmall(hugeLog)).toBeUndefined();
   });
 });

@@ -15,12 +15,12 @@ We aim to keep contributions simple, respectful, and easy to review.
 ### Requirements
 
 - Node.js 20+
-- pnpm 9+
+- pnpm 11.1.2
 
 ### Install
 
 ```sh
-pnpm install
+pnpm install --ignore-scripts
 ```
 
 ## Development Flow

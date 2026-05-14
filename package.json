@@ -3,6 +3,10 @@
   "version": "0.6.0",
   "description": "OpenCode plugin that exposes subagent session statusline state",
   "type": "module",
+  "packageManager": "pnpm@11.1.2",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/tui.js",
   "types": "./dist/tui.d.ts",
   "exports": {
@@ -24,10 +28,16 @@
     "assets",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsup",
     "prepack": "pnpm run build",
     "release": "semantic-release",
+    "audit:prod": "pnpm audit --prod --audit-level moderate",
+    "pack:dry-run": "pnpm pack --dry-run",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -42,12 +52,15 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "@opencode-ai/plugin": "*",
-    "@opentui/core": "*",
-    "@opentui/solid": "*",
-    "solid-js": "*"
+    "@opencode-ai/plugin": ">=1.14.50 <2",
+    "@opentui/core": ">=0.2.10 <0.3",
+    "@opentui/solid": ">=0.2.10 <0.3",
+    "solid-js": ">=1.9.12 <2"
   },
   "devDependencies": {
+    "@opencode-ai/plugin": "^1.14.50",
+    "@opentui/core": "^0.2.10",
+    "@opentui/solid": "^0.2.10",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/github": "^11.0.6",
     "@semantic-release/npm": "^12.0.2",

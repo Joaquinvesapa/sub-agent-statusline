@@ -6,3 +6,6 @@ dist/
 .DS_Store
 .atl/
 coverage/
+.pi/
+.pi-chain/
+security-audit/

@@ -89,10 +89,10 @@ subagent.
 
 ## Local development
 
-Install dependencies:
+Install dependencies with lifecycle scripts disabled by default:
 
 ```sh
-pnpm install
+pnpm install --ignore-scripts
 ```
 
 Build the plugin:
@@ -133,6 +133,20 @@ pnpm test:watch
 pnpm test:coverage
 pnpm pack --dry-run
 ```
+
+## Security hardening for maintainers
+
+Recommended local npm/pnpm hygiene, following guidance from Gentle AI and Liran Tal:
+
+- install project dependencies with lifecycle scripts disabled when possible, for example `pnpm install --ignore-scripts`;
+- consider setting user-level `ignore-scripts=true` for npm/pnpm and temporarily opt in only when a trusted package needs scripts;
+- enable dependency age/cooldown policies where supported, for example `npm config set min-release-age 3` or equivalent Renovate/Dependabot cooldowns;
+- block or review git, tarball, URL, and other exotic dependency specs, for example `npm config set allow-git none` where supported;
+- optionally screen new packages with tools such as `npq` or Socket Firewall before adding them.
+
+These are maintainer/developer controls, not runtime enforcement by this plugin.
+
+Release maintainers should also keep npm trusted publishing/OIDC enabled for this package, require npm 2FA on maintainer accounts, restrict and revoke legacy npm tokens once OIDC publishing is active, and protect the release branch in GitHub.
 
 ## Testing
 
@@ -175,6 +189,14 @@ Then restart OpenCode.
 ### Token/context usage is missing
 
 OpenCode event payloads can vary by version and by event type. The plugin shows token/context usage when it is available and safely omits it when it is not.
+
+## Local privacy and persistence
+
+The plugin persists a local JSON state file and `status.txt` snapshot under `XDG_RUNTIME_DIR` or the system temp directory by default. Those files can include OpenCode-derived subagent titles and summaries, which may contain short fragments derived from prompts or task descriptions. Files are written best-effort with owner-only permissions and atomic temp-file replacement where Node and the host filesystem support them.
+
+`OPENCODE_SUBAGENT_STATUSLINE_STATE` overrides the state file path. Treat that environment variable as trusted local configuration because the plugin will write status data to the configured path.
+
+For token/context backfill, the TUI reads recent local OpenCode SQLite/log data only from the user's OpenCode data directory. Very large log files are skipped to avoid blocking the TUI.
 
 ---
 

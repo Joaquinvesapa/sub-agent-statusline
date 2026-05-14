@@ -49,10 +49,10 @@ Keep assertions semantic. Prefer checking meaningful counters, titles, statuses,
 
 ## Running tests
 
-Install dependencies first:
+Install dependencies first with lifecycle scripts disabled by default:
 
 ```sh
-pnpm install
+pnpm install --ignore-scripts
 ```
 
 Run the full suite once:
