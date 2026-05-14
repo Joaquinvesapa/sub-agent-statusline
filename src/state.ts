@@ -529,6 +529,9 @@ export async function loadState(statePath: string): Promise<StatuslineState> {
         candidate.targetSessionID,
         id.startsWith("ses_") ? id : undefined,
       );
+      if (candidate.source === "subtask" && targetSessionID && state.countedChildIDs[id]) {
+        rekeyCountedExecution(state, id, targetSessionID);
+      }
       const countIdentity = resolveExecutionCountIdentity(state, {
         id,
         title: candidate.title,

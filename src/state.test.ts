@@ -397,4 +397,30 @@ describe("state", () => {
     expect(loaded.countedChildIDs.ses_child).toBe(true);
     expect(loaded.countedChildIDs["subtask:old"]).toBeUndefined();
   });
+
+  it("deduplicates historical subtask and target ids that were both counted", async () => {
+    const harness = await createRuntimeHarness();
+    await writeFile(
+      harness.statePath,
+      JSON.stringify({
+        children: {
+          "subtask:old": child({
+            id: "subtask:old",
+            source: "subtask",
+            targetSessionID: "ses_child",
+          }),
+        },
+        countedChildIDs: { "subtask:old": true, ses_child: true },
+        totalExecuted: 2,
+        updatedAt: "2026-04-30T10:00:00.000Z",
+      }),
+      "utf8",
+    );
+
+    const loaded = await loadState(harness.statePath);
+
+    expect(loaded.totalExecuted).toBe(1);
+    expect(loaded.countedChildIDs.ses_child).toBe(true);
+    expect(loaded.countedChildIDs["subtask:old"]).toBeUndefined();
+  });
 });
