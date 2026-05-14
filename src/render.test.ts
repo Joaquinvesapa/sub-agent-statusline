@@ -70,7 +70,7 @@ describe("render", () => {
     ]);
   });
 
-  it("collapses a targetless synchronous task wrapper with the only session sibling", () => {
+  it("does not collapse a targetless generic task wrapper without correlation", () => {
     const children: ChildSessionState[] = [
       child({
         id: "tool:sync-task",
@@ -89,13 +89,10 @@ describe("render", () => {
       }),
     ];
 
-    const collapsed = collapseSubagentWorkItems(children);
-
-    expect(collapsed.map((item) => item.id)).toEqual(["tool:sync-task"]);
-    expect(collapsed[0]).toMatchObject({
-      status: "running",
-      targetSessionID: "ses_sync_child",
-    });
+    expect(collapseSubagentWorkItems(children).map((item) => item.id)).toEqual([
+      "tool:sync-task",
+      "ses_sync_child",
+    ]);
   });
 
   it("keeps one grouped row and avoids duplicate wrappers", () => {

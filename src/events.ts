@@ -251,10 +251,15 @@ function extractPartTargetSessionCandidates(event: EventLike): string[] {
   return [...candidates];
 }
 
-function parseTaskSessionIDFromOutput(value: unknown): string | undefined {
+function parseTaskSessionIDFromOutput(
+  value: unknown,
+  parentSessionID?: string,
+): string | undefined {
   if (typeof value !== "string") return undefined;
-  const match = value.match(/\b(?:task_id\s*:\s*)?(ses_[a-zA-Z0-9_-]+)\b/i);
-  return match?.[1];
+  const matches = [...value.matchAll(/\b(?:task_id\s*:\s*)?(ses_[a-zA-Z0-9_-]+)\b/gi)];
+  const candidates = new Set(matches.map((match) => match[1]));
+  if (parentSessionID) candidates.delete(parentSessionID);
+  return candidates.size === 1 ? [...candidates][0] : undefined;
 }
 
 function backfillSyntheticTargetsForSession(
@@ -278,9 +283,18 @@ function backfillSyntheticTargetsForSession(
         (child) => child.messageID === session.messageID,
       )
     : [];
+  const existingSessionSiblings = Object.values(state.children).filter(
+    (child) =>
+      child.id !== session.id &&
+      (child.source === "session" || child.id.startsWith("ses_")) &&
+      child.parentID === session.parentID,
+  );
   const candidates =
     messageMatches.length > 0 ? messageMatches : targetlessSynthetic;
   if (candidates.length !== 1) return false;
+  if (messageMatches.length === 0 && existingSessionSiblings.length > 0) {
+    return false;
+  }
 
   const synthetic = candidates[0];
   const targetSessionID = resolveSyntheticTargetSessionID(
@@ -320,7 +334,11 @@ export function extractTaskToolEvidence(
 
   const metadata = isRecord(state.metadata) ? state.metadata : undefined;
   const targetFromMetadata = asString(metadata?.sessionId);
-  const targetFromOutput = parseTaskSessionIDFromOutput(state.output);
+  const parentSessionID = asString(part.sessionID) ?? extractSessionID(event);
+  const targetFromOutput = parseTaskSessionIDFromOutput(
+    state.output,
+    parentSessionID,
+  );
   const targetCandidates = extractPartTargetSessionCandidates(event);
   const targetSessionID =
     targetFromMetadata ??

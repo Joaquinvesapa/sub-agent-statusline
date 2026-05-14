@@ -275,12 +275,7 @@ export function collapseSubagentWorkItems(
     const sessionCandidates =
       sessionCandidatesByParentID.get(synthetic.parentID) ?? [];
     for (const candidate of sessionCandidates) {
-      const isOnlySessionSibling =
-        isGenericToolWrapper(synthetic) && sessionCandidates.length === 1;
-      if (
-        !isOnlySessionSibling &&
-        !sessionMatchesSynthetic(candidate, synthetic)
-      ) {
+      if (!sessionMatchesSynthetic(candidate, synthetic)) {
         continue;
       }
       bestSession = betterPriority(bestSession, candidate);

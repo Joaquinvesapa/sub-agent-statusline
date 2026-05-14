@@ -244,17 +244,37 @@ describe("extractTaskToolEvidence", () => {
       extractTaskToolEvidence({
         type: "message.part.updated",
         properties: {
+          sessionID: "ses_parent",
           part: {
             type: "tool",
             tool: "task",
+            sessionID: "ses_parent",
             state: {
               status: "completed",
-              output: "finished session ses_child_4",
+              output: "parent ses_parent finished child ses_child_4",
             },
           },
         },
       })?.targetSessionID,
     ).toBe("ses_child_4");
+  });
+
+  it("does not infer a task target from ambiguous output session ids", () => {
+    expect(
+      extractTaskToolEvidence({
+        type: "message.part.updated",
+        properties: {
+          part: {
+            type: "tool",
+            tool: "task",
+            state: {
+              status: "completed",
+              output: "first ses_child_1 then ses_child_2",
+            },
+          },
+        },
+      })?.targetSessionID,
+    ).toBeUndefined();
   });
 });
 
@@ -300,6 +320,52 @@ describe("task tool to subtask mapping", () => {
     expect(state.totalExecuted).toBe(1);
     expect(state.countedChildIDs.ses_sync_child).toBe(true);
     expect(state.countedChildIDs["tool:tool_sync"]).toBeUndefined();
+  });
+
+  it("does not backfill a targetless task wrapper when another session sibling already exists", () => {
+    const state = createEmptyState();
+
+    applySubagentEvent(state, {
+      type: "session.created",
+      properties: {
+        info: {
+          id: "ses_existing_child",
+          parentID: "ses_parent",
+          title: "Existing child",
+        },
+      },
+    });
+    applySubagentEvent(state, {
+      type: "message.part.updated",
+      properties: {
+        sessionID: "ses_parent",
+        part: {
+          type: "tool",
+          tool: "task",
+          id: "tool_sync",
+          sessionID: "ses_parent",
+          state: {
+            status: "running",
+            input: { description: "Run sync task" },
+          },
+        },
+      },
+    });
+    applySubagentEvent(state, {
+      type: "session.created",
+      properties: {
+        info: {
+          id: "ses_later_child",
+          parentID: "ses_parent",
+          title: "Later child",
+        },
+      },
+    });
+
+    expect(state.children["tool:tool_sync"]?.targetSessionID).toBeUndefined();
+    expect(state.totalExecuted).toBe(2);
+    expect(state.countedChildIDs.ses_existing_child).toBe(true);
+    expect(state.countedChildIDs.ses_later_child).toBe(true);
   });
 
   it("maps completed task tool evidence to matching subtask row", () => {
