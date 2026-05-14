@@ -6,17 +6,14 @@ import type {
   TuiSlotContext,
   TuiThemeCurrent,
 } from "@opencode-ai/plugin/tui";
-import type { BoxRenderable, KeyEvent, ScrollBoxRenderable } from "@opentui/core";
+import type {
+  BoxRenderable,
+  KeyEvent,
+  ScrollBoxRenderable,
+} from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import { execFileSync } from "node:child_process";
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-} from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { appendFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import { dirname, join } from "node:path";
@@ -31,6 +28,7 @@ import {
 } from "solid-js";
 import type { Accessor } from "solid-js";
 import { applySubagentEvent, extractChildDetails } from "./events.js";
+import { readOpenCodeLogFileIfSmall } from "./logs.js";
 import {
   byPriority,
   formatDuration,
@@ -59,6 +57,7 @@ import {
   resolveStatePath,
   resolveTextPath,
   saveState,
+  saveStatusText,
   upsertChildDetails,
   type ChildTokenState,
   type ChildSessionState,
@@ -151,7 +150,10 @@ function maxScrollTop(scrollbox: ScrollBoxRenderable): number {
   return Math.max(0, scrollbox.scrollHeight - scrollbox.viewport.height);
 }
 
-function clampedScrollTop(scrollbox: ScrollBoxRenderable, value: number): number {
+function clampedScrollTop(
+  scrollbox: ScrollBoxRenderable,
+  value: number,
+): number {
   return Math.max(0, Math.min(value, maxScrollTop(scrollbox)));
 }
 
@@ -362,7 +364,7 @@ function readDoneTokensFromOpenCodeLogs(
   const tokenPattern = /"tokens"\s*:\s*(\{[^\n]*?\})/g;
   let tokens: ChildTokenState | undefined;
   for (const file of files) {
-    const contents = safeRead(() => readFileSync(join(logDir, file), "utf8"));
+    const contents = readOpenCodeLogFileIfSmall(join(logDir, file));
     if (!contents || !contents.includes(sessionID)) continue;
 
     for (const line of contents.split("\n")) {
@@ -532,7 +534,7 @@ function persistStateSnapshot(
   void (async () => {
     try {
       await saveState(statePath, snapshot);
-      await writeFile(textPath, renderStatusLine(snapshot), "utf8");
+      await saveStatusText(textPath, renderStatusLine(snapshot));
     } catch {
       // Persistence is best-effort; TUI rendering must not fail because of files.
     }
@@ -847,7 +849,11 @@ function formatChildRowLine(input: {
       width - Math.max(0, detailChars - width),
     );
     if (labelBudget >= MIN_LABEL_WIDTH || meta.length === 0) {
-      const labelLines = wrapCompactText(title.label, Math.max(1, labelBudget), 2);
+      const labelLines = wrapCompactText(
+        title.label,
+        Math.max(1, labelBudget),
+        2,
+      );
       return {
         labelLines,
         secondaryLine: formatSecondaryLine(
@@ -864,7 +870,11 @@ function formatChildRowLine(input: {
   const labelLines = wrapCompactText(title.label, MIN_LABEL_WIDTH, 2);
   return {
     labelLines,
-    secondaryLine: formatSecondaryLine(labelLines[1], parenthetical, MIN_LABEL_WIDTH),
+    secondaryLine: formatSecondaryLine(
+      labelLines[1],
+      parenthetical,
+      MIN_LABEL_WIDTH,
+    ),
     elapsed,
     meta: "",
   };
@@ -886,13 +896,16 @@ function formatTerminalChildRowLine(input: {
   const labelSource = parenthetical
     ? `${title.label} ${parenthetical}`
     : title.label;
-  const context = contextVariants(input.child).find((variant) => variant.length > 0);
+  const context = contextVariants(input.child).find(
+    (variant) => variant.length > 0,
+  );
 
   return {
-    label: ellipsize(labelSource, Math.max(1, width - (input.reservedWidth ?? 0))),
-    meta: context
-      ? `${elapsed} ${context}`
-      : elapsed,
+    label: ellipsize(
+      labelSource,
+      Math.max(1, width - (input.reservedWidth ?? 0)),
+    ),
+    meta: context ? `${elapsed} ${context}` : elapsed,
   };
 }
 
@@ -962,7 +975,9 @@ function SidebarSubagents(props: {
   const visibleChildIDs = createMemo(() =>
     visibleChildren().map((child) => child.id),
   );
-  const [selectedChildID, setSelectedChildID] = createSignal<string | undefined>();
+  const [selectedChildID, setSelectedChildID] = createSignal<
+    string | undefined
+  >();
   const [listFocused, setListFocused] = createSignal(false);
   const [listFocusModeActive, setListFocusModeActive] = createSignal(false);
 
@@ -1080,7 +1095,10 @@ function SidebarSubagents(props: {
     if (rowTop < viewportTop) {
       scrollbox.scrollTop = clampedScrollTop(scrollbox, rowTop);
     } else if (rowBottom > viewportBottom) {
-      scrollbox.scrollTop = clampedScrollTop(scrollbox, rowBottom - listHeight());
+      scrollbox.scrollTop = clampedScrollTop(
+        scrollbox,
+        rowBottom - listHeight(),
+      );
     }
   };
 
@@ -1091,7 +1109,10 @@ function SidebarSubagents(props: {
     const fallbackIndex = delta > 0 ? 0 : ids.length - 1;
     const nextIndex = Math.max(
       0,
-      Math.min(ids.length - 1, currentIndex < 0 ? fallbackIndex : currentIndex + delta),
+      Math.min(
+        ids.length - 1,
+        currentIndex < 0 ? fallbackIndex : currentIndex + delta,
+      ),
     );
     setSelectedChildID(ids[nextIndex]);
   };
@@ -1108,7 +1129,9 @@ function SidebarSubagents(props: {
     const selected = visibleChildren().find(
       (child) => child.id === selectedChildID(),
     );
-    return selected ? resolveNavigableChildTargetSessionID(selected) : undefined;
+    return selected
+      ? resolveNavigableChildTargetSessionID(selected)
+      : undefined;
   };
 
   const activateSelectedChild = (): void => {
@@ -1287,7 +1310,9 @@ function SidebarSubagents(props: {
           fallback={
             <box flexDirection="column">
               <box flexDirection="row">
-                <text fg={selected() ? props.theme.accent : props.theme.textMuted}>
+                <text
+                  fg={selected() ? props.theme.accent : props.theme.textMuted}
+                >
                   {selected() ? "›" : " "}
                 </text>
                 <text fg={statusColor(status(), props.theme)}>
@@ -1311,7 +1336,9 @@ function SidebarSubagents(props: {
         >
           <box flexDirection="column">
             <box flexDirection="row">
-              <text fg={selected() ? props.theme.accent : props.theme.textMuted}>
+              <text
+                fg={selected() ? props.theme.accent : props.theme.textMuted}
+              >
                 {selected() ? "›" : " "}
               </text>
               <text fg={statusColor(status(), props.theme)}>
@@ -1422,7 +1449,9 @@ function HomeBottomStatus(props: {
 }) {
   const counts = createMemo(() => {
     const result = { running: 0, done: 0, error: 0 };
-    for (const child of visibleSubagentWorkItems(Object.values(props.state().children))) {
+    for (const child of visibleSubagentWorkItems(
+      Object.values(props.state().children),
+    )) {
       if (child.status === "running") result.running += 1;
       if (child.status === "done") result.done += 1;
       if (child.status === "error") result.error += 1;
@@ -1718,7 +1747,10 @@ function resolveRouteSessionID(api: TuiPluginApi): string | undefined {
     : undefined;
 }
 
-function resolveRunningChildAgeMillis(child: ChildSessionState, nowMs: number): {
+function resolveRunningChildAgeMillis(
+  child: ChildSessionState,
+  nowMs: number,
+): {
   startedMs: number;
   updatedMs: number;
 } {
@@ -1734,8 +1766,10 @@ function resolveReconcileTargetSessionID(
   state: StatuslineState,
   child: ChildSessionState,
 ): string | undefined {
-  return resolveChildTargetSessionID(child) ??
-    resolveSyntheticTargetFromHydratedState(state, child);
+  return (
+    resolveChildTargetSessionID(child) ??
+    resolveSyntheticTargetFromHydratedState(state, child)
+  );
 }
 
 function selectRunningReconcileCandidates(input: {
@@ -1835,7 +1869,9 @@ async function probeRunningEvidence(input: {
   );
   if (statusResp === undefined) probeFailed = true;
   const statuses = asRecord(statusResp?.data);
-  const statusFromClient = deriveSessionChildStatus(statuses?.[input.targetSessionID]);
+  const statusFromClient = deriveSessionChildStatus(
+    statuses?.[input.targetSessionID],
+  );
   if (statusFromClient === "done" || statusFromClient === "error") {
     return { status: statusFromClient, endedAt: new Date().toISOString() };
   }
@@ -2043,7 +2079,7 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
 
   createEffect(() => {
     hydrateRetryTick();
-    const route = api.route.current;
+    void api.route.current;
     const routeSessionID = resolveRouteSessionID(api);
 
     if (previousRouteSessionID && previousRouteSessionID !== routeSessionID) {
@@ -2274,7 +2310,8 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
                 staleThresholdMs: STALE_RUNNING_THRESHOLD_MS,
                 startedMs: candidate.startedMs,
                 updatedMs: candidate.updatedMs,
-                latestMessageActivityAtMs: parentSummary.latestMessageActivityAtMs,
+                latestMessageActivityAtMs:
+                  parentSummary.latestMessageActivityAtMs,
               });
             if (canSafelyFallbackByParentInactivity) {
               mutations.push({
@@ -2376,7 +2413,10 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
         let changed = false;
 
         for (const mutation of mutations) {
-          if (mutation.reconcileWithoutTargetSessionID && mutation.targetSessionID.startsWith("ses_")) {
+          if (
+            mutation.reconcileWithoutTargetSessionID &&
+            mutation.targetSessionID.startsWith("ses_")
+          ) {
             changed =
               upsertChildDetails(next, mutation.childID, {
                 targetSessionID: mutation.targetSessionID,
@@ -2497,7 +2537,8 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
       home_prompt(_ctx: TuiSlotContext, props: HomePromptProps) {
         const promptProps = {
           ...props,
-          ...(props.workspaceID === undefined && props.workspace_id !== undefined
+          ...(props.workspaceID === undefined &&
+          props.workspace_id !== undefined
             ? { workspaceID: props.workspace_id }
             : {}),
           ref: composePromptRef(props.ref),
@@ -2517,10 +2558,7 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
           right:
             props.right ??
             (sessionID ? (
-              <api.ui.Slot
-                name="session_prompt_right"
-                session_id={sessionID}
-              />
+              <api.ui.Slot name="session_prompt_right" session_id={sessionID} />
             ) : undefined),
           ref: composePromptRef(props.ref),
         };

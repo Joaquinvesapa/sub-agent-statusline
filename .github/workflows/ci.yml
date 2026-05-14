@@ -17,19 +17,25 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11.1.2
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.13
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Typecheck
         run: pnpm typecheck
 
       - name: Test
         run: pnpm test
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level moderate
+
+      - name: Verify package contents
+        run: pnpm pack --dry-run

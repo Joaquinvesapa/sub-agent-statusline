@@ -1,5 +1,4 @@
 import type { Plugin } from "@opencode-ai/plugin";
-import { writeFile } from "node:fs/promises";
 import { applySubagentEvent } from "./events.js";
 import { renderStatusLine } from "./render.js";
 import {
@@ -8,6 +7,7 @@ import {
   resolveStatePath,
   resolveTextPath,
   saveState,
+  saveStatusText,
   shouldPreserveStateOnStartup,
 } from "./state.js";
 
@@ -19,7 +19,7 @@ export const SubagentStatusline: Plugin = async () => {
     try {
       const emptyState = createEmptyState();
       await saveState(statePath, emptyState);
-      await writeFile(textPath, renderStatusLine(emptyState), "utf8");
+      await saveStatusText(textPath, renderStatusLine(emptyState));
     } catch {
       // Defensive by design: initialization failure should not crash OpenCode startup.
     }
@@ -34,7 +34,7 @@ export const SubagentStatusline: Plugin = async () => {
         if (changed) {
           await saveState(statePath, state);
           const line = renderStatusLine(state);
-          await writeFile(textPath, line, "utf8");
+          await saveStatusText(textPath, line);
         }
       } catch {
         // Defensive by design: plugin should never crash OpenCode on bad event shape.

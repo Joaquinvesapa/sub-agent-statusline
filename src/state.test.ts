@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -11,6 +11,7 @@ import {
   resolveStatePath,
   resolveTextPath,
   saveState,
+  saveStatusText,
   shouldPreserveStateOnStartup,
   upsertChildDetails,
   upsertRunningChild,
@@ -318,6 +319,29 @@ describe("state", () => {
       children: {},
       totalExecuted: 0,
     });
+  });
+
+  it("writes state and text snapshots atomically with owner-only file modes", async () => {
+    const harness = await createRuntimeHarness();
+    const state = createEmptyState();
+    state.children.ses_child = child();
+    state.totalExecuted = 1;
+    state.countedChildIDs.ses_child = true;
+
+    await saveState(harness.statePath, state);
+    await saveStatusText(join(harness.dir, "status.txt"), "subagents: 1");
+
+    expect(await loadState(harness.statePath)).toMatchObject({
+      totalExecuted: 1,
+    });
+    expect((await stat(harness.dir)).mode & 0o777).toBe(0o700);
+    expect((await stat(harness.statePath)).mode & 0o777).toBe(0o600);
+    expect((await stat(join(harness.dir, "status.txt"))).mode & 0o777).toBe(
+      0o600,
+    );
+    expect(
+      (await readdir(harness.dir)).some((file) => file.endsWith(".tmp")),
+    ).toBe(false);
   });
 
   it("does not add newly loaded tool wrappers while preserving historical tool counts", async () => {
