@@ -81,7 +81,9 @@ function formatCompactPercentUsed(percent: number): string {
   return `${Math.max(0, rounded)}%`;
 }
 
-export function formatContextDetails(child: ChildSessionState): string | undefined {
+export function formatContextDetails(
+  child: ChildSessionState,
+): string | undefined {
   const total = resolveTokenTotal(child);
   const percent = child.tokens?.contextPercent;
 
@@ -177,7 +179,8 @@ function sessionMatchesSynthetic(
   session: ChildSessionState,
   synthetic: ChildSessionState,
 ): boolean {
-  if (session.source !== "session" && !session.id.startsWith("ses_")) return false;
+  if (session.source !== "session" && !session.id.startsWith("ses_"))
+    return false;
   if (session.parentID !== synthetic.parentID) return false;
   if (synthetic.targetSessionID === session.id) return true;
   if (session.targetSessionID === synthetic.id) return true;
@@ -188,6 +191,7 @@ function sessionMatchesSynthetic(
   ) {
     return true;
   }
+  if (isGenericToolWrapper(synthetic)) return false;
   return (
     sameAgentName(session.agentName, synthetic.agentName) &&
     relatedWorkItemTitles(session.title, synthetic.title)
@@ -269,8 +273,12 @@ export function collapseSubagentWorkItems(
 
   for (const synthetic of syntheticChildren) {
     let bestSession: ChildSessionState | undefined;
-    for (const candidate of sessionCandidatesByParentID.get(synthetic.parentID) ?? []) {
-      if (!sessionMatchesSynthetic(candidate, synthetic)) continue;
+    const sessionCandidates =
+      sessionCandidatesByParentID.get(synthetic.parentID) ?? [];
+    for (const candidate of sessionCandidates) {
+      if (!sessionMatchesSynthetic(candidate, synthetic)) {
+        continue;
+      }
       bestSession = betterPriority(bestSession, candidate);
       if (candidate.source === "session") {
         hiddenMatchedSessionIDs.add(candidate.id);
@@ -305,7 +313,9 @@ export function collapseSubagentWorkItems(
         return !(
           hiddenTargetSessionIDs.has(child.id) ||
           (child.messageID &&
-            hiddenMessageKeys.has(messageKey(child.parentID, child.messageID))) ||
+            hiddenMessageKeys.has(
+              messageKey(child.parentID, child.messageID),
+            )) ||
           hiddenMatchedSessionIDs.has(child.id)
         );
       }
@@ -313,7 +323,9 @@ export function collapseSubagentWorkItems(
       if (child.source !== "tool") return true;
       return !hiddenSyntheticToolIDs.has(child.id);
     })
-    .map((child) => mergeSyntheticWithSession(child, sessionBySyntheticID.get(child.id)));
+    .map((child) =>
+      mergeSyntheticWithSession(child, sessionBySyntheticID.get(child.id)),
+    );
 }
 
 export function isVisibleWorkItem(
@@ -350,7 +362,9 @@ export function visibleSubagentWorkItems(
 }
 
 export function renderStatusLine(state: StatuslineState): string {
-  const children = visibleSubagentWorkItems(Object.values(state.children)).sort(byPriority);
+  const children = visibleSubagentWorkItems(Object.values(state.children)).sort(
+    byPriority,
+  );
   const running = children.filter((c) => c.status === "running").length;
   const done = children.filter((c) => c.status === "done").length;
   const error = children.filter((c) => c.status === "error").length;

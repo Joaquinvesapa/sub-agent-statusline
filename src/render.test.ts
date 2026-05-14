@@ -70,6 +70,31 @@ describe("render", () => {
     ]);
   });
 
+  it("does not collapse a targetless generic task wrapper without correlation", () => {
+    const children: ChildSessionState[] = [
+      child({
+        id: "tool:sync-task",
+        title: "task",
+        source: "tool",
+        targetSessionID: undefined,
+        messageID: "msg_sync",
+      }),
+      child({
+        id: "ses_sync_child",
+        title: "Run task cleanup",
+        source: "session",
+        targetSessionID: "ses_sync_child",
+        messageID: undefined,
+        status: "running",
+      }),
+    ];
+
+    expect(collapseSubagentWorkItems(children).map((item) => item.id)).toEqual([
+      "tool:sync-task",
+      "ses_sync_child",
+    ]);
+  });
+
   it("keeps one grouped row and avoids duplicate wrappers", () => {
     const children: ChildSessionState[] = [
       child({
@@ -124,7 +149,9 @@ describe("render", () => {
     });
 
     expect(
-      visibleSubagentWorkItems([visibleDone, hiddenDone], now).map((item) => item.id),
+      visibleSubagentWorkItems([visibleDone, hiddenDone], now).map(
+        (item) => item.id,
+      ),
     ).toEqual(["done_recent"]);
   });
 
@@ -166,7 +193,9 @@ describe("render", () => {
       "subtask:active",
       "subtask:active-done",
     ]);
-    expect(visible.some((item) => item.id === "subtask:historical")).toBe(false);
+    expect(visible.some((item) => item.id === "subtask:historical")).toBe(
+      false,
+    );
   });
 
   it("sorts ties by id for stable priority", () => {
@@ -185,14 +214,21 @@ describe("render", () => {
           status: "running",
           color: "yellow",
         }),
-        error: child({ id: "error", title: "Fix bug", status: "error", color: "red" }),
+        error: child({
+          id: "error",
+          title: "Fix bug",
+          status: "error",
+          color: "red",
+        }),
       },
       countedChildIDs: { running: true, error: true },
       totalExecuted: 2,
       updatedAt: "2026-04-30T10:00:00.000Z",
     };
 
-    expect(renderStatusLine(state)).toContain("↳ 1 running · 0 done · 1 error · Σ 2 total");
+    expect(renderStatusLine(state)).toContain(
+      "↳ 1 running · 0 done · 1 error · Σ 2 total",
+    );
     expect(renderStatusLine(state)).toContain("Run tests 01:01");
     expect(renderStatusLine(state)).not.toContain("\u001B[");
   });
