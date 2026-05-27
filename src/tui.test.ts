@@ -10,10 +10,11 @@ import {
 import { registerSubagentCommands } from "./tui-commands.js";
 
 describe("registerSubagentCommands", () => {
-  it("uses the supported keymap layer API when available", () => {
-    const dispose = vi.fn();
-    const registerLayer = vi.fn(() => dispose);
-    const commandRegister = vi.fn();
+  it("registers both keymap and legacy commands when both APIs are available", () => {
+    const keymapDispose = vi.fn();
+    const legacyDispose = vi.fn();
+    const registerLayer = vi.fn(() => keymapDispose);
+    const commandRegister = vi.fn(() => legacyDispose);
     const toggleSection = vi.fn();
     const focusSidebarList = vi.fn();
 
@@ -27,7 +28,7 @@ describe("registerSubagentCommands", () => {
       focusSidebarList,
     });
 
-    expect(commandRegister).not.toHaveBeenCalled();
+    expect(commandRegister).toHaveBeenCalledOnce();
     expect(registerLayer).toHaveBeenCalledOnce();
     expect(registerLayer).toHaveBeenCalledWith({
       commands: [
@@ -54,6 +55,62 @@ describe("registerSubagentCommands", () => {
     layer?.commands?.[0]?.run();
     layer?.commands?.[1]?.run();
 
+    const legacyCommands = commandRegister.mock.calls[0]?.[0]?.();
+    legacyCommands?.[0]?.onSelect?.();
+    legacyCommands?.[1]?.onSelect?.();
+
+    expect(toggleSection).toHaveBeenNthCalledWith(1, false);
+    expect(toggleSection).toHaveBeenNthCalledWith(2, false);
+    expect(focusSidebarList).toHaveBeenCalledTimes(2);
+
+    expect(legacyCommands).toEqual([
+      expect.objectContaining({
+        value: "subagent-statusline.toggle-sidebar-section",
+        description: "Toggle the entire subagent sidebar section",
+        category: "Subagents",
+      }),
+      expect.objectContaining({
+        title: "Subagents: Focus sidebar list",
+        value: "subagent-statusline.focus-sidebar-list",
+        keybind: "alt+b",
+      }),
+    ]);
+
+    result();
+    expect(keymapDispose).toHaveBeenCalledOnce();
+    expect(legacyDispose).toHaveBeenCalledOnce();
+
+    result();
+    expect(keymapDispose).toHaveBeenCalledOnce();
+    expect(legacyDispose).toHaveBeenCalledOnce();
+  });
+
+  it("registers only keymap when legacy API is unavailable", () => {
+    const dispose = vi.fn();
+    const registerLayer = vi.fn(() => dispose);
+    const toggleSection = vi.fn();
+    const focusSidebarList = vi.fn();
+
+    const result = registerSubagentCommands({
+      api: {
+        keymap: { registerLayer },
+      },
+      sectionEnabled: () => true,
+      toggleSection,
+      focusSidebarList,
+    });
+
+    expect(registerLayer).toHaveBeenCalledOnce();
+    const layer = registerLayer.mock.calls[0]?.[0];
+    expect(layer?.bindings).toEqual([
+      {
+        key: "alt+b",
+        cmd: "subagent-statusline.focus-sidebar-list",
+      },
+    ]);
+
+    layer?.commands?.[0]?.run();
+    layer?.commands?.[1]?.run();
     expect(toggleSection).toHaveBeenCalledWith(false);
     expect(focusSidebarList).toHaveBeenCalledOnce();
 
@@ -61,20 +118,78 @@ describe("registerSubagentCommands", () => {
     expect(dispose).toHaveBeenCalledOnce();
   });
 
-  it("falls back to the legacy command API only when keymap is unavailable", () => {
+  it("falls back to the legacy command API when keymap is unavailable", () => {
     const dispose = vi.fn();
     const register = vi.fn(() => dispose);
+    const toggleSection = vi.fn();
+    const focusSidebarList = vi.fn();
 
     const result = registerSubagentCommands({
       api: { command: { register } },
+      sectionEnabled: () => false,
+      toggleSection,
+      focusSidebarList,
+    });
+
+    expect(register).toHaveBeenCalledOnce();
+    const legacyCommands = register.mock.calls[0]?.[0]?.();
+    expect(legacyCommands).toEqual([
+      expect.objectContaining({
+        title: "Subagents: Enable sidebar section",
+        value: "subagent-statusline.toggle-sidebar-section",
+      }),
+      expect.objectContaining({
+        value: "subagent-statusline.focus-sidebar-list",
+        keybind: "alt+b",
+      }),
+    ]);
+
+    legacyCommands?.[0]?.onSelect?.();
+    legacyCommands?.[1]?.onSelect?.();
+    expect(toggleSection).toHaveBeenCalledWith(true);
+    expect(focusSidebarList).toHaveBeenCalledOnce();
+
+    result();
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("returns a safe no-op disposer when neither API is available", () => {
+    const result = registerSubagentCommands({
+      api: {},
       sectionEnabled: () => false,
       toggleSection: vi.fn(),
       focusSidebarList: vi.fn(),
     });
 
-    expect(register).toHaveBeenCalledOnce();
+    expect(() => result()).not.toThrow();
+    expect(() => result()).not.toThrow();
+  });
+
+  it("disposes all created registrations even if one dispose throws", () => {
+    const keymapDispose = vi.fn(() => {
+      throw new Error("keymap dispose failed");
+    });
+    const legacyDispose = vi.fn();
+    const registerLayer = vi.fn(() => keymapDispose);
+    const register = vi.fn(() => legacyDispose);
+
+    const result = registerSubagentCommands({
+      api: {
+        keymap: { registerLayer },
+        command: { register },
+      },
+      sectionEnabled: () => false,
+      toggleSection: vi.fn(),
+      focusSidebarList: vi.fn(),
+    });
+
+    expect(() => result()).not.toThrow();
+    expect(keymapDispose).toHaveBeenCalledOnce();
+    expect(legacyDispose).toHaveBeenCalledOnce();
+
     result();
-    expect(dispose).toHaveBeenCalledOnce();
+    expect(keymapDispose).toHaveBeenCalledOnce();
+    expect(legacyDispose).toHaveBeenCalledOnce();
   });
 });
 
