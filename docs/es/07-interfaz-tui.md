@@ -113,7 +113,10 @@ El plugin registra comandos para la command palette de OpenCode.
 | `Subagents: Focus sidebar list`     | Enfoca la lista de subagentes. |
 | `Subagents: Toggle sidebar section` | Activa o desactiva la sección. |
 
-Internamente, el plugin prefiere usar la API moderna de `keymap.registerLayer` cuando está disponible. Si no existe, usa una API legacy de comandos.
+Internamente, el plugin registra ambas APIs cuando están disponibles:
+`keymap.registerLayer` mantiene el atajo `Alt+B`, y `command.register` mantiene
+los comandos visibles en la command palette de OpenCode. Si solo existe una API,
+el plugin usa esa ruta sin fallar.
 
 ## Abrir una sesión hija
 

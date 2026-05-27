@@ -49,6 +49,54 @@ type RegisterSubagentCommandsInput = {
 
 const TOGGLE_SECTION_COMMAND = "subagent-statusline.toggle-sidebar-section";
 const FOCUS_SIDEBAR_LIST_COMMAND = "subagent-statusline.focus-sidebar-list";
+const COMMAND_CATEGORY = "Subagents";
+
+type SharedCommandMetadata = {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+};
+
+const SHARED_COMMAND_METADATA: {
+  toggle: SharedCommandMetadata;
+  focus: SharedCommandMetadata;
+} = {
+  toggle: {
+    id: TOGGLE_SECTION_COMMAND,
+    title: "Subagents: Toggle sidebar section",
+    description: "Toggle the entire subagent sidebar section",
+    category: COMMAND_CATEGORY,
+  },
+  focus: {
+    id: FOCUS_SIDEBAR_LIST_COMMAND,
+    title: "Subagents: Focus sidebar list",
+    description: "Focus the subagent sidebar list for keyboard navigation",
+    category: COMMAND_CATEGORY,
+  },
+};
+
+function createToggleSelectionTitle(sectionEnabled: boolean): string {
+  return sectionEnabled
+    ? "Subagents: Disable sidebar section"
+    : "Subagents: Enable sidebar section";
+}
+
+function createCompositeDispose(disposers: TuiCommandDispose[]): TuiCommandDispose {
+  let disposed = false;
+  return () => {
+    if (disposed) return;
+    disposed = true;
+
+    for (const dispose of disposers) {
+      try {
+        dispose();
+      } catch {
+        // Cleanup should be best-effort across mixed runtime APIs.
+      }
+    }
+  };
+}
 
 export function registerSubagentCommands({
   api,
@@ -56,50 +104,58 @@ export function registerSubagentCommands({
   toggleSection,
   focusSidebarList,
 }: RegisterSubagentCommandsInput): TuiCommandDispose {
+  const disposers: TuiCommandDispose[] = [];
+
   if (api.keymap?.registerLayer) {
-    return api.keymap.registerLayer({
+    disposers.push(
+      api.keymap.registerLayer({
       commands: [
         {
-          name: TOGGLE_SECTION_COMMAND,
-          title: "Subagents: Toggle sidebar section",
-          description: "Toggle the entire subagent sidebar section",
-          category: "Subagents",
+          name: SHARED_COMMAND_METADATA.toggle.id,
+          title: SHARED_COMMAND_METADATA.toggle.title,
+          description: SHARED_COMMAND_METADATA.toggle.description,
+          category: SHARED_COMMAND_METADATA.toggle.category,
           run: () => toggleSection(!sectionEnabled()),
         },
         {
-          name: FOCUS_SIDEBAR_LIST_COMMAND,
-          title: "Subagents: Focus sidebar list",
-          description: "Focus the subagent sidebar list for keyboard navigation",
-          category: "Subagents",
+          name: SHARED_COMMAND_METADATA.focus.id,
+          title: SHARED_COMMAND_METADATA.focus.title,
+          description: SHARED_COMMAND_METADATA.focus.description,
+          category: SHARED_COMMAND_METADATA.focus.category,
           run: focusSidebarList,
         },
       ],
       bindings: [
         {
           key: "alt+b",
-          cmd: FOCUS_SIDEBAR_LIST_COMMAND,
+          cmd: SHARED_COMMAND_METADATA.focus.id,
         },
       ],
-    });
+    }),
+    );
   }
 
-  return api.command?.register?.(() => [
-    {
-      title: sectionEnabled()
-        ? "Subagents: Disable sidebar section"
-        : "Subagents: Enable sidebar section",
-      value: TOGGLE_SECTION_COMMAND,
-      description: "Toggle the entire subagent sidebar section",
-      category: "Subagents",
-      onSelect: () => toggleSection(!sectionEnabled()),
-    },
-    {
-      title: "Subagents: Focus sidebar list",
-      value: FOCUS_SIDEBAR_LIST_COMMAND,
-      description: "Focus the subagent sidebar list for keyboard navigation",
-      category: "Subagents",
-      keybind: "alt+b",
-      onSelect: focusSidebarList,
-    },
-  ]) ?? (() => undefined);
+  if (api.command?.register) {
+    disposers.push(
+      api.command.register(() => [
+        {
+          title: createToggleSelectionTitle(sectionEnabled()),
+          value: SHARED_COMMAND_METADATA.toggle.id,
+          description: SHARED_COMMAND_METADATA.toggle.description,
+          category: SHARED_COMMAND_METADATA.toggle.category,
+          onSelect: () => toggleSection(!sectionEnabled()),
+        },
+        {
+          title: SHARED_COMMAND_METADATA.focus.title,
+          value: SHARED_COMMAND_METADATA.focus.id,
+          description: SHARED_COMMAND_METADATA.focus.description,
+          category: SHARED_COMMAND_METADATA.focus.category,
+          keybind: "alt+b",
+          onSelect: focusSidebarList,
+        },
+      ]),
+    );
+  }
+
+  return createCompositeDispose(disposers);
 }

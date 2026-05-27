@@ -104,7 +104,9 @@ When the list is focused, navigation shortcuts apply to the list. Otherwise, the
 | `Subagents: Focus sidebar list` | Focus the subagent list. |
 | `Subagents: Toggle sidebar section` | Enable or disable the section. |
 
-Internally, the plugin prefers `keymap.registerLayer` when available. Otherwise, it falls back to the legacy command API.
+Internally, the plugin registers both APIs when available: `keymap.registerLayer`
+keeps `Alt+B` dispatch fast, and `command.register` keeps commands visible in the
+OpenCode command palette. If only one API exists, the plugin safely uses that one.
 
 ## Opening a child session
 
