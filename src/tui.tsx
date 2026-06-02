@@ -68,6 +68,7 @@ import {
   type StatuslineState,
 } from "./state.js";
 import { registerSubagentCommands } from "./tui-commands.js";
+import { t } from "./i18n.js";
 
 const TUI_PLUGIN_ID = "subagent-statusline.tui";
 const ELAPSED_TICK_MS = 1000;
@@ -1410,7 +1411,7 @@ function SidebarSubagents(props: {
           fg={props.theme.text}
           selectable={false}
           onMouseDown={props.onToggleExpanded}
-        >{`${props.expanded() ? SIDEBAR_ARROW_EXPANDED : SIDEBAR_ARROW_COLLAPSED} Subagentes`}</text>
+        >{`${props.expanded() ? SIDEBAR_ARROW_EXPANDED : SIDEBAR_ARROW_COLLAPSED} ${t("subagents")}`}</text>
         <Show when={PLUGIN_VERSION}>
           {(version: Accessor<string>) => (
             <text
