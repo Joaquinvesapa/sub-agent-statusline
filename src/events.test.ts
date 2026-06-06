@@ -119,6 +119,30 @@ describe("events", () => {
     });
   });
 
+  it("maps terminal session.updated status to done", () => {
+    const state = createEmptyState();
+
+    const changed = applySubagentEvent(state, {
+      type: "session.updated",
+      properties: {
+        info: {
+          id: "ses_child_updated",
+          parentID: "ses_parent",
+          title: "Child updated",
+          status: "idle",
+          time: { updated: "2026-05-10T10:25:00.000Z" },
+        },
+      },
+    });
+
+    expect(changed).toBe(true);
+    expect(state.children.ses_child_updated).toMatchObject({
+      status: "done",
+      endedAt: "2026-05-10T10:25:00.000Z",
+      elapsedMs: 0,
+    });
+  });
+
   it.each([
     "busy",
     "retry",

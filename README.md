@@ -89,6 +89,36 @@ When a child session is opened from the sidebar, returning with OpenCode `Up`
 (`session_parent`) moves keyboard focus to the parent prompt so you can type
 immediately.
 
+## Configuration
+
+The plugin keeps conservative reconciliation defaults so long-running child
+sessions are not treated as stale just because they have been quiet for a while.
+Short-lived automation environments can opt into faster stale-child cleanup with
+environment variables before launching OpenCode:
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `OPENCODE_SUBAGENT_STATUSLINE_STALE_RUNNING_MS` | `36000000` | Inactive running child age before safe stale fallback can close it. |
+| `OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_INTERVAL_MS` | `600000` | How often the TUI runs stale-running reconciliation maintenance. |
+| `OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_INITIAL_BACKOFF_MS` | `15000` | First retry backoff for unresolved reconciliation probes. |
+| `OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_MAX_BACKOFF_MS` | `300000` | Maximum retry backoff for unresolved reconciliation probes. |
+| `OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_MESSAGE_AGE_GATE_MS` | `60000` | Minimum child age before message inspection can close stale work. |
+| `OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_OLD_CANDIDATE_AGE_MS` | `300000` | Age after which old running children are considered for probing. |
+| `OPENCODE_SUBAGENT_STATUSLINE_CLOCK_ICON` | `t` | Single-character label shown before elapsed time. |
+| `OPENCODE_SUBAGENT_STATUSLINE_TOKEN_ICON` | `#` | Single-character label shown before token/context usage. |
+
+For fast local runners where subagent work normally completes within minutes,
+an aggressive profile can use values such as:
+
+```sh
+OPENCODE_SUBAGENT_STATUSLINE_STALE_RUNNING_MS=300000
+OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_INTERVAL_MS=30000
+OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_INITIAL_BACKOFF_MS=5000
+OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_MAX_BACKOFF_MS=60000
+OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_MESSAGE_AGE_GATE_MS=30000
+OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_OLD_CANDIDATE_AGE_MS=60000
+```
+
 ---
 
 ## Documentation
