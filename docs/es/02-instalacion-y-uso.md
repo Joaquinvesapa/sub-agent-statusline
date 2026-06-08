@@ -113,6 +113,7 @@ La sidebar soporta navegación por teclado cuando la lista está enfocada.
 | `j` / `ArrowDown`  | Mueve la selección al siguiente subagente visible.        |
 | `k` / `ArrowUp`    | Mueve la selección al subagente anterior.                 |
 | `Enter`            | Abre la sesión seleccionada, si hay una sesión navegable. |
+| `c`                | Alterna completed history para filas `done` retenidas.    |
 | `h` / `ArrowLeft`  | Colapsa la sección.                                       |
 | `l` / `ArrowRight` | Expande la sección.                                       |
 | `Esc`              | Sale del modo foco y vuelve al prompt.                    |
@@ -122,6 +123,7 @@ También podés usar la command palette de OpenCode:
 ```txt
 Subagents: Focus sidebar list
 Subagents: Toggle sidebar section
+Subagents: Toggle completed history
 ```
 
 ## Cuándo una fila se puede abrir

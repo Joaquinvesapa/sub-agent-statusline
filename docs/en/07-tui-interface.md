@@ -104,6 +104,7 @@ When the list is focused, navigation shortcuts apply to the list. Otherwise, the
 | --- | --- |
 | `Subagents: Focus sidebar list` | Focus the subagent list. |
 | `Subagents: Toggle sidebar section` | Enable or disable the section. |
+| `Subagents: Toggle completed history` | Toggle retained completed rows in the sidebar. |
 
 Internally, the plugin registers both APIs when available: `keymap.registerLayer`
 keeps `Alt+B` dispatch fast, and `command.register` keeps commands visible in the
@@ -129,7 +130,8 @@ keeping list focus.
 
 The section can be expanded/collapsed and enabled/disabled.
 
-Clicking `Σ` in the sidebar aggregate row toggles completed history. This shows
+Clicking `Σ`, pressing `c` while the list is focused, or running
+`Subagents: Toggle completed history` toggles completed history. This shows
 retained stale `done` rows and retained `done` rows that are unrelated to active
 work. The toggle is transient and is not stored in `api.kv`.
 

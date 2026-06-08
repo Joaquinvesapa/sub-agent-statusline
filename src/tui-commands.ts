@@ -45,10 +45,13 @@ type RegisterSubagentCommandsInput = {
   sectionEnabled: () => boolean;
   toggleSection: (enabled: boolean) => void;
   focusSidebarList: () => void;
+  toggleCompletedHistory: () => void;
 };
 
 const TOGGLE_SECTION_COMMAND = "subagent-statusline.toggle-sidebar-section";
 const FOCUS_SIDEBAR_LIST_COMMAND = "subagent-statusline.focus-sidebar-list";
+const TOGGLE_COMPLETED_HISTORY_COMMAND =
+  "subagent-statusline.toggle-completed-history";
 const COMMAND_CATEGORY = "Subagents";
 
 type SharedCommandMetadata = {
@@ -61,6 +64,7 @@ type SharedCommandMetadata = {
 const SHARED_COMMAND_METADATA: {
   toggle: SharedCommandMetadata;
   focus: SharedCommandMetadata;
+  toggleCompletedHistory: SharedCommandMetadata;
 } = {
   toggle: {
     id: TOGGLE_SECTION_COMMAND,
@@ -72,6 +76,13 @@ const SHARED_COMMAND_METADATA: {
     id: FOCUS_SIDEBAR_LIST_COMMAND,
     title: "Subagents: Focus sidebar list",
     description: "Focus the subagent sidebar list for keyboard navigation",
+    category: COMMAND_CATEGORY,
+  },
+  toggleCompletedHistory: {
+    id: TOGGLE_COMPLETED_HISTORY_COMMAND,
+    title: "Subagents: Toggle completed history",
+    description:
+      "Toggle retained completed rows in the subagent sidebar. Shortcut: c while the sidebar list is focused.",
     category: COMMAND_CATEGORY,
   },
 };
@@ -103,35 +114,44 @@ export function registerSubagentCommands({
   sectionEnabled,
   toggleSection,
   focusSidebarList,
+  toggleCompletedHistory,
 }: RegisterSubagentCommandsInput): TuiCommandDispose {
   const disposers: TuiCommandDispose[] = [];
 
   if (api.keymap?.registerLayer) {
     disposers.push(
       api.keymap.registerLayer({
-      commands: [
-        {
-          name: SHARED_COMMAND_METADATA.toggle.id,
-          title: SHARED_COMMAND_METADATA.toggle.title,
-          description: SHARED_COMMAND_METADATA.toggle.description,
-          category: SHARED_COMMAND_METADATA.toggle.category,
-          run: () => toggleSection(!sectionEnabled()),
-        },
-        {
-          name: SHARED_COMMAND_METADATA.focus.id,
-          title: SHARED_COMMAND_METADATA.focus.title,
-          description: SHARED_COMMAND_METADATA.focus.description,
-          category: SHARED_COMMAND_METADATA.focus.category,
-          run: focusSidebarList,
-        },
-      ],
-      bindings: [
-        {
-          key: "alt+b",
-          cmd: SHARED_COMMAND_METADATA.focus.id,
-        },
-      ],
-    }),
+        commands: [
+          {
+            name: SHARED_COMMAND_METADATA.toggle.id,
+            title: SHARED_COMMAND_METADATA.toggle.title,
+            description: SHARED_COMMAND_METADATA.toggle.description,
+            category: SHARED_COMMAND_METADATA.toggle.category,
+            run: () => toggleSection(!sectionEnabled()),
+          },
+          {
+            name: SHARED_COMMAND_METADATA.focus.id,
+            title: SHARED_COMMAND_METADATA.focus.title,
+            description: SHARED_COMMAND_METADATA.focus.description,
+            category: SHARED_COMMAND_METADATA.focus.category,
+            run: focusSidebarList,
+          },
+          {
+            name: SHARED_COMMAND_METADATA.toggleCompletedHistory.id,
+            title: SHARED_COMMAND_METADATA.toggleCompletedHistory.title,
+            description:
+              SHARED_COMMAND_METADATA.toggleCompletedHistory.description,
+            category: SHARED_COMMAND_METADATA.toggleCompletedHistory.category,
+            run: toggleCompletedHistory,
+          },
+        ],
+        bindings: [
+          {
+            key: "alt+b",
+            cmd: SHARED_COMMAND_METADATA.focus.id,
+          },
+        ],
+      }),
     );
   }
 
@@ -152,6 +172,13 @@ export function registerSubagentCommands({
           category: SHARED_COMMAND_METADATA.focus.category,
           keybind: "alt+b",
           onSelect: focusSidebarList,
+        },
+        {
+          title: SHARED_COMMAND_METADATA.toggleCompletedHistory.title,
+          value: SHARED_COMMAND_METADATA.toggleCompletedHistory.id,
+          description: SHARED_COMMAND_METADATA.toggleCompletedHistory.description,
+          category: SHARED_COMMAND_METADATA.toggleCompletedHistory.category,
+          onSelect: toggleCompletedHistory,
         },
       ]),
     );

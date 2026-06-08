@@ -207,6 +207,7 @@ Unknown statuses are treated as inconclusive instead of guessed.
 | --- | --- |
 | `Subagents: Toggle sidebar section` | Enable or disable the subagent section. |
 | `Subagents: Focus sidebar list` | Move focus to the subagent list. |
+| `Subagents: Toggle completed history` | Toggle retained completed rows in the sidebar. |
 
 Main shortcut:
 

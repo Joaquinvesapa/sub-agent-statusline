@@ -17,6 +17,7 @@ describe("registerSubagentCommands", () => {
     const commandRegister = vi.fn(() => legacyDispose);
     const toggleSection = vi.fn();
     const focusSidebarList = vi.fn();
+    const toggleCompletedHistory = vi.fn();
 
     const result = registerSubagentCommands({
       api: {
@@ -26,6 +27,7 @@ describe("registerSubagentCommands", () => {
       sectionEnabled: () => true,
       toggleSection,
       focusSidebarList,
+      toggleCompletedHistory,
     });
 
     expect(commandRegister).toHaveBeenCalledOnce();
@@ -42,6 +44,11 @@ describe("registerSubagentCommands", () => {
           title: "Subagents: Focus sidebar list",
           run: expect.any(Function),
         }),
+        expect.objectContaining({
+          name: "subagent-statusline.toggle-completed-history",
+          title: "Subagents: Toggle completed history",
+          run: expect.any(Function),
+        }),
       ],
       bindings: [
         {
@@ -54,14 +61,17 @@ describe("registerSubagentCommands", () => {
     const layer = registerLayer.mock.calls[0]?.[0];
     layer?.commands?.[0]?.run();
     layer?.commands?.[1]?.run();
+    layer?.commands?.[2]?.run();
 
     const legacyCommands = commandRegister.mock.calls[0]?.[0]?.();
     legacyCommands?.[0]?.onSelect?.();
     legacyCommands?.[1]?.onSelect?.();
+    legacyCommands?.[2]?.onSelect?.();
 
     expect(toggleSection).toHaveBeenNthCalledWith(1, false);
     expect(toggleSection).toHaveBeenNthCalledWith(2, false);
     expect(focusSidebarList).toHaveBeenCalledTimes(2);
+    expect(toggleCompletedHistory).toHaveBeenCalledTimes(2);
 
     expect(legacyCommands).toEqual([
       expect.objectContaining({
@@ -73,6 +83,11 @@ describe("registerSubagentCommands", () => {
         title: "Subagents: Focus sidebar list",
         value: "subagent-statusline.focus-sidebar-list",
         keybind: "alt+b",
+      }),
+      expect.objectContaining({
+        title: "Subagents: Toggle completed history",
+        value: "subagent-statusline.toggle-completed-history",
+        description: expect.stringContaining("Shortcut: c"),
       }),
     ]);
 
@@ -90,6 +105,7 @@ describe("registerSubagentCommands", () => {
     const registerLayer = vi.fn(() => dispose);
     const toggleSection = vi.fn();
     const focusSidebarList = vi.fn();
+    const toggleCompletedHistory = vi.fn();
 
     const result = registerSubagentCommands({
       api: {
@@ -98,6 +114,7 @@ describe("registerSubagentCommands", () => {
       sectionEnabled: () => true,
       toggleSection,
       focusSidebarList,
+      toggleCompletedHistory,
     });
 
     expect(registerLayer).toHaveBeenCalledOnce();
@@ -111,8 +128,10 @@ describe("registerSubagentCommands", () => {
 
     layer?.commands?.[0]?.run();
     layer?.commands?.[1]?.run();
+    layer?.commands?.[2]?.run();
     expect(toggleSection).toHaveBeenCalledWith(false);
     expect(focusSidebarList).toHaveBeenCalledOnce();
+    expect(toggleCompletedHistory).toHaveBeenCalledOnce();
 
     result();
     expect(dispose).toHaveBeenCalledOnce();
@@ -123,12 +142,14 @@ describe("registerSubagentCommands", () => {
     const register = vi.fn(() => dispose);
     const toggleSection = vi.fn();
     const focusSidebarList = vi.fn();
+    const toggleCompletedHistory = vi.fn();
 
     const result = registerSubagentCommands({
       api: { command: { register } },
       sectionEnabled: () => false,
       toggleSection,
       focusSidebarList,
+      toggleCompletedHistory,
     });
 
     expect(register).toHaveBeenCalledOnce();
@@ -142,12 +163,18 @@ describe("registerSubagentCommands", () => {
         value: "subagent-statusline.focus-sidebar-list",
         keybind: "alt+b",
       }),
+      expect.objectContaining({
+        value: "subagent-statusline.toggle-completed-history",
+        description: expect.stringContaining("sidebar list is focused"),
+      }),
     ]);
 
     legacyCommands?.[0]?.onSelect?.();
     legacyCommands?.[1]?.onSelect?.();
+    legacyCommands?.[2]?.onSelect?.();
     expect(toggleSection).toHaveBeenCalledWith(true);
     expect(focusSidebarList).toHaveBeenCalledOnce();
+    expect(toggleCompletedHistory).toHaveBeenCalledOnce();
 
     result();
     expect(dispose).toHaveBeenCalledOnce();
@@ -159,6 +186,7 @@ describe("registerSubagentCommands", () => {
       sectionEnabled: () => false,
       toggleSection: vi.fn(),
       focusSidebarList: vi.fn(),
+      toggleCompletedHistory: vi.fn(),
     });
 
     expect(() => result()).not.toThrow();
@@ -181,6 +209,7 @@ describe("registerSubagentCommands", () => {
       sectionEnabled: () => false,
       toggleSection: vi.fn(),
       focusSidebarList: vi.fn(),
+      toggleCompletedHistory: vi.fn(),
     });
 
     expect(() => result()).not.toThrow();

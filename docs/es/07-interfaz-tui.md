@@ -113,6 +113,7 @@ El plugin registra comandos para la command palette de OpenCode.
 | ----------------------------------- | ------------------------------ |
 | `Subagents: Focus sidebar list`     | Enfoca la lista de subagentes. |
 | `Subagents: Toggle sidebar section` | Activa o desactiva la sección. |
+| `Subagents: Toggle completed history` | Alterna filas completadas retenidas en la sidebar. |
 
 Internamente, el plugin registra ambas APIs cuando están disponibles:
 `keymap.registerLayer` mantiene el atajo `Alt+B`, y `command.register` mantiene
@@ -137,10 +138,10 @@ Esto es intencional: navegar requiere una sesión real de OpenCode.
 
 La sección puede expandirse o colapsarse.
 
-Hacer click en `Σ` dentro de la fila agregada de la sidebar alterna completed
-history. Esto muestra filas `done` viejas retenidas y filas `done` retenidas que
-no están relacionadas con el trabajo activo. El toggle es transitorio y no se
-guarda en `api.kv`.
+Hacer click en `Σ`, presionar `c` con la lista enfocada o ejecutar
+`Subagents: Toggle completed history` alterna completed history. Esto muestra
+filas `done` viejas retenidas y filas `done` retenidas que no están relacionadas
+con el trabajo activo. El toggle es transitorio y no se guarda en `api.kv`.
 
 El plugin guarda preferencias en `api.kv` de OpenCode:
 

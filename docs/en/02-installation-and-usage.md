@@ -113,6 +113,7 @@ The sidebar supports keyboard navigation while the list is focused.
 | `j` / `ArrowDown`  | Move selection to the next visible subagent.              |
 | `k` / `ArrowUp`    | Move selection to the previous subagent.                  |
 | `Enter`            | Open the selected session, if a navigable session exists. |
+| `c`                | Toggle completed history for retained `done` rows.        |
 | `h` / `ArrowLeft`  | Collapse the section.                                     |
 | `l` / `ArrowRight` | Expand the section.                                       |
 | `Esc`              | Leave list focus mode and return to the prompt.           |
@@ -122,6 +123,7 @@ You can also use OpenCode's command palette:
 ```txt
 Subagents: Focus sidebar list
 Subagents: Toggle sidebar section
+Subagents: Toggle completed history
 ```
 
 ## When a row can be opened

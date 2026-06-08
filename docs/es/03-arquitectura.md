@@ -262,6 +262,7 @@ Comandos principales:
 | ----------------------------------- | -------------------------------------------- |
 | `Subagents: Toggle sidebar section` | Activa o desactiva la sección de subagentes. |
 | `Subagents: Focus sidebar list`     | Mueve el foco a la lista de subagentes.      |
+| `Subagents: Toggle completed history` | Alterna filas completadas retenidas en la sidebar. |
 
 Atajo principal:
 

@@ -128,8 +128,14 @@ interface SidebarListFocusRegistration {
   isListFocusModeActive: () => boolean;
 }
 
+interface SidebarCompletedHistoryRegistration {
+  toggleCompletedHistory: () => boolean;
+}
+
 const sidebarScrollRegistrations = new Set<SidebarScrollRegistration>();
 const sidebarListFocusRegistrations = new Set<SidebarListFocusRegistration>();
+const sidebarCompletedHistoryRegistrations =
+  new Set<SidebarCompletedHistoryRegistration>();
 
 function focusVisibleSidebarSubagentList(preferredChildID?: string): boolean {
   for (const registration of [...sidebarListFocusRegistrations].reverse()) {
@@ -149,6 +155,15 @@ function isAnySidebarSubagentListFocused(): boolean {
   return [...sidebarListFocusRegistrations].some((registration) =>
     registration.isListFocusModeActive(),
   );
+}
+
+function toggleVisibleSidebarCompletedHistory(): boolean {
+  for (const registration of [
+    ...sidebarCompletedHistoryRegistrations,
+  ].reverse()) {
+    if (registration.toggleCompletedHistory()) return true;
+  }
+  return false;
 }
 
 function maxScrollTop(scrollbox: ScrollBoxRenderable): number {
@@ -1053,9 +1068,17 @@ function SidebarSubagents(props: {
     isListFocusModeActive: () => listFocusModeActive(),
   };
   sidebarListFocusRegistrations.add(focusRegistration);
+  const completedHistoryRegistration: SidebarCompletedHistoryRegistration = {
+    toggleCompletedHistory: () => {
+      setShowCompletedHistory((current) => !current);
+      return true;
+    },
+  };
+  sidebarCompletedHistoryRegistrations.add(completedHistoryRegistration);
   onCleanup(() => {
     sidebarScrollRegistrations.delete(scrollRegistration);
     sidebarListFocusRegistrations.delete(focusRegistration);
+    sidebarCompletedHistoryRegistrations.delete(completedHistoryRegistration);
     if (restoreScrollTimeout) clearTimeout(restoreScrollTimeout);
   });
 
@@ -1156,7 +1179,7 @@ function SidebarSubagents(props: {
   };
 
   const toggleCompletedHistory = (): void => {
-    setShowCompletedHistory((current) => !current);
+    completedHistoryRegistration.toggleCompletedHistory();
   };
 
   createEffect(() => {
@@ -2069,11 +2092,23 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
     }, 0);
   };
 
+  const toggleSidebarCompletedHistory = (): void => {
+    api.ui.dialog.clear();
+    setSubagentsSectionEnabled(true);
+    setSubagentsExpanded(true);
+    api.kv.set(SUBAGENTS_SECTION_ENABLED_KV_KEY, true);
+    api.kv.set(SUBAGENTS_EXPANDED_KV_KEY, true);
+    setTimeout(() => {
+      toggleVisibleSidebarCompletedHistory();
+    }, 0);
+  };
+
   const commandDispose = registerSubagentCommands({
     api,
     sectionEnabled: subagentsSectionEnabled,
     toggleSection: setSubagentsSectionEnabledPreference,
     focusSidebarList: toggleSidebarListFocus,
+    toggleCompletedHistory: toggleSidebarCompletedHistory,
   });
 
   const clearHydrateRetryTimeout = (sessionID: string): void => {
