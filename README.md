@@ -59,7 +59,7 @@ Restart OpenCode after editing the file.
 The TUI plugin adds a sidebar section that shows:
 
 - running subagents
-- completed subagents
+- recent completed subagents, with a manual completed history toggle for retained older completions
 - failed subagents
 - elapsed time
 - token/context usage when available
@@ -78,12 +78,19 @@ navigation shortcuts are handled only while the sidebar list is focused.
 | `j` / `ArrowDown`  | Move selection to the next visible subagent.                   |
 | `k` / `ArrowUp`    | Move selection to the previous visible subagent.               |
 | `Enter`            | Open the selected subagent session.                            |
+| `c`                | Toggle retained completed history in the sidebar.              |
 | `h` / `ArrowLeft`  | Collapse the subagent section.                                 |
 | `l` / `ArrowRight` | Expand the subagent section.                                   |
 | `Esc`              | Leave list focus mode and return to the prompt.                |
 
 Opening a selected session is a no-op when there is no visible or navigable
 subagent.
+
+Click `Σ` in the sidebar aggregate row to toggle completed history with the
+mouse. The toggle is not persisted; it resets when OpenCode or the plugin is
+reloaded. Completed history is bounded retained history, not a full database:
+terminal rows are kept for up to 3 days with a 1,500-row cap, and rows already
+pruned from state are not restored.
 
 When a child session is opened from the sidebar, returning with OpenCode `Up`
 (`session_parent`) moves keyboard focus to the parent prompt so you can type

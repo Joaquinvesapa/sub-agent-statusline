@@ -149,6 +149,10 @@ export function byPriority(a: ChildSessionState, b: ChildSessionState): number {
 
 const RECENT_DONE_VISIBLE_MS = 10 * 60 * 1000;
 
+interface VisibleSubagentWorkItemsOptions {
+  showCompletedHistory?: boolean;
+}
+
 function normalizeWorkItemTitle(value: string): string {
   return value
     .toLowerCase()
@@ -341,10 +345,12 @@ export function isVisibleWorkItem(
 export function visibleSubagentWorkItems(
   children: ChildSessionState[],
   nowMs = Date.now(),
+  options: VisibleSubagentWorkItemsOptions = {},
 ): ChildSessionState[] {
-  const visible = collapseSubagentWorkItems(children).filter((child) =>
-    isVisibleWorkItem(child, nowMs),
-  );
+  const collapsed = collapseSubagentWorkItems(children);
+  if (options.showCompletedHistory) return collapsed;
+
+  const visible = collapsed.filter((child) => isVisibleWorkItem(child, nowMs));
   const hasRunning = visible.some((child) => child.status === "running");
   const activeMessageIDs = new Set(
     visible

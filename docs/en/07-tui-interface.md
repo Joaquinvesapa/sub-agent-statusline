@@ -91,6 +91,7 @@ When the list is focused, navigation shortcuts apply to the list. Otherwise, the
 | `k` | Select the previous subagent. |
 | `ArrowUp` | Select the previous subagent. |
 | `Enter` | Open the selected session if navigable. |
+| `c` | Toggle completed history for retained `done` rows. |
 | `h` | Collapse the section. |
 | `ArrowLeft` | Collapse the section. |
 | `l` | Expand the section. |
@@ -128,6 +129,10 @@ keeping list focus.
 
 The section can be expanded/collapsed and enabled/disabled.
 
+Clicking `Σ` in the sidebar aggregate row toggles completed history. This shows
+retained stale `done` rows and retained `done` rows that are unrelated to active
+work. The toggle is transient and is not stored in `api.kv`.
+
 Preferences are stored through OpenCode `api.kv`:
 
 | Preference | Use |
@@ -136,6 +141,10 @@ Preferences are stored through OpenCode `api.kv`:
 | `subagents.sidebar.enabled` | Remembers whether the section is enabled. |
 
 These preferences belong to the TUI environment, not the runtime plugin's `state.json`.
+
+Completed history is bounded by state retention: terminal rows are retained for
+up to 3 days with a 1,500-row cap. Rows already pruned from state are not
+restored.
 
 ## Scroll and selection
 
@@ -230,9 +239,10 @@ For full visual changes, run a manual OpenCode smoke test.
 4. Run a delegation/subagent.
 5. Verify it appears in the sidebar.
 6. Test `Alt+B`.
-7. Test `j/k`, arrows, and `Esc`.
-8. If a row is navigable, test `Enter`.
-9. Confirm recent completions appear without polluting the view indefinitely.
+7. Test `j/k`, arrows, `c`, and `Esc`.
+8. Click `Σ` and verify completed history toggles.
+9. If a row is navigable, test `Enter`.
+10. Confirm recent completions appear without polluting the default view indefinitely.
 
 ## Related files
 

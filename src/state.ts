@@ -43,8 +43,8 @@ export interface StatusCounts {
   error: number;
 }
 
-const TERMINAL_CHILD_TTL_MS = 60 * 60 * 1000;
-const MAX_TERMINAL_CHILDREN = 500;
+const TERMINAL_CHILD_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const MAX_TERMINAL_CHILDREN = 1_500;
 
 function statusColor(status: ChildStatus): ChildSessionState["color"] {
   if (status === "done") return "green";

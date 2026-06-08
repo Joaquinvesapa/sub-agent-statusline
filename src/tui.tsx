@@ -938,12 +938,17 @@ function SidebarSubagents(props: {
   sidebarWidth?: () => number | undefined;
   theme: TuiThemeCurrent;
 }) {
+  const [showCompletedHistory, setShowCompletedHistory] = createSignal(false);
+  const completedHistoryOptions = () => ({
+    showCompletedHistory: showCompletedHistory(),
+  });
   const children = createMemo(() =>
     visibleSubagentWorkItems(
       Object.values(props.state().children).filter(
         (child) => child.parentID === props.sessionID,
       ),
       props.nowMs(),
+      completedHistoryOptions(),
     ).sort(byPriority),
   );
 
@@ -953,6 +958,7 @@ function SidebarSubagents(props: {
         (child) => child.parentID !== props.sessionID,
       ),
       props.nowMs(),
+      completedHistoryOptions(),
     ).sort(byPriority),
   );
 
@@ -1149,6 +1155,10 @@ function SidebarSubagents(props: {
     navigateToSessionTarget(props.api, selectedTargetSessionID());
   };
 
+  const toggleCompletedHistory = (): void => {
+    setShowCompletedHistory((current) => !current);
+  };
+
   createEffect(() => {
     selectedChildID();
     listHeight();
@@ -1170,6 +1180,8 @@ function SidebarSubagents(props: {
       if (props.expanded()) props.onSetExpanded(false);
     } else if (name === "l" || name === "right" || name === "arrowright") {
       if (!props.expanded()) props.onSetExpanded(true);
+    } else if (name === "c") {
+      toggleCompletedHistory();
     } else if (name === "escape" || name === "esc") {
       focusRegistration.blurList();
       props.onReturnFocus();
@@ -1390,7 +1402,12 @@ function SidebarSubagents(props: {
       <text fg={props.theme.textMuted}> · </text>
       <text fg={props.theme.error}>{`✕ ${counts().error} err`}</text>
       <text fg={props.theme.textMuted}> · </text>
-      <text fg={props.theme.text}>{`Σ ${totalExecuted()}`}</text>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: OpenTUI text supports mouse targets. */}
+      <text
+        fg={showCompletedHistory() ? props.theme.accent : props.theme.text}
+        selectable={false}
+        onMouseDown={toggleCompletedHistory}
+      >{`Σ ${totalExecuted()}`}</text>
     </box>
   );
 

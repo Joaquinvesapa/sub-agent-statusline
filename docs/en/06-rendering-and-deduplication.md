@@ -160,6 +160,11 @@ General behavior:
 
 This keeps the sidebar useful instead of turning it into a long history.
 
+The sidebar can temporarily relax the `done` filters through completed history.
+When completed history is enabled, stale `done` rows and unrelated `done` rows
+hidden during active work become visible again after the normal collapse/dedupe
+step. Text statusline output and the home summary keep the default filtering.
+
 ## Visibility vs pruning
 
 Hiding a row during render is not the same as deleting it from state.
@@ -167,9 +172,13 @@ Hiding a row during render is not the same as deleting it from state.
 Two layers exist:
 
 1. **Visibility filtering** in `src/render.ts`.
-2. **State pruning** in `src/state.ts`.
+2. **State pruning** in `src/state.ts`, which keeps terminal rows for up to 3
+   days with a 1,500-row cap.
 
 Neither should reduce `totalExecuted`.
+
+Completed history only displays retained rows. It does not restore rows that
+state pruning already removed or past sessions that OpenCode APIs do not return.
 
 ## Text rendering
 
@@ -239,6 +248,9 @@ Important distinction:
 | `tool:prt_task` + `ses_child` | One real session row. |
 | `subtask:prt_1` + `ses_child` | One enriched subtask row. |
 | Old `done` plus active work | Active work visible; old done hidden. |
+
+With completed history enabled in the sidebar, the old `done` row in the final
+case is visible again if it is still retained in state.
 
 ## When not collapsing is correct
 

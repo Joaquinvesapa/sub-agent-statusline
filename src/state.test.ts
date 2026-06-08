@@ -269,15 +269,15 @@ describe("state", () => {
       id: "oldDone",
       status: "done",
       color: "green",
-      endedAt: "2026-04-30T08:00:00.000Z",
-      updatedAt: "2026-04-30T08:00:00.000Z",
+      endedAt: "2026-04-26T08:00:00.000Z",
+      updatedAt: "2026-04-26T08:00:00.000Z",
     });
     state.children.recentDone = child({
       id: "recentDone",
       status: "done",
       color: "green",
-      endedAt: "2026-04-30T09:30:00.000Z",
-      updatedAt: "2026-04-30T09:30:00.000Z",
+      endedAt: "2026-04-28T09:30:00.000Z",
+      updatedAt: "2026-04-28T09:30:00.000Z",
     });
 
     expect(

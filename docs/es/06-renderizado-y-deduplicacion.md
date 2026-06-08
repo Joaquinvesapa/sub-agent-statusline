@@ -178,6 +178,12 @@ Reglas generales:
 
 Esto mantiene la sidebar útil y evita que se convierta en un historial largo.
 
+La sidebar puede relajar temporalmente los filtros de `done` con completed
+history. Cuando completed history está activo, las filas `done` viejas y las
+filas `done` no relacionadas con el trabajo activo vuelven a mostrarse después
+del collapse/dedupe normal. El statusline textual y el resumen de home conservan
+el filtrado por defecto.
+
 ## Relación con poda de estado
 
 Ocultar una fila en render no significa borrarla inmediatamente del estado.
@@ -185,11 +191,15 @@ Ocultar una fila en render no significa borrarla inmediatamente del estado.
 Hay dos capas distintas:
 
 1. **Filtro de visibilidad** en `src/render.ts`.
-2. **Poda de estado** en `src/state.ts`.
+2. **Poda de estado** en `src/state.ts`, que conserva filas terminales hasta 3
+   días con un límite de 1.500 filas.
 
 El filtro decide qué ve el usuario ahora. La poda evita que el estado crezca indefinidamente.
 
 Ninguna de las dos debería reducir `totalExecuted`.
+
+Completed history solo muestra filas retenidas. No restaura filas que la poda de
+estado ya eliminó ni sesiones pasadas que las APIs de OpenCode no devuelven.
 
 ## Render textual
 
@@ -323,6 +333,9 @@ Total:
 ```
 
 La finalización vieja se oculta para no ensuciar la vista.
+
+Con completed history activo en la sidebar, esa fila `done` vieja vuelve a ser
+visible si todavía está retenida en el estado.
 
 ## Casos donde no colapsar es correcto
 

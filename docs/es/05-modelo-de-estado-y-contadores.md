@@ -277,7 +277,8 @@ También poda filas terminales viejas para evitar crecimiento indefinido.
 
 ## Poda de hijos terminales
 
-El estado conserva hijos `done` o `error` durante un tiempo limitado.
+El estado conserva hijos `done` o `error` durante un tiempo limitado: hasta 3
+días, con un límite de 1.500 filas terminales.
 
 El objetivo:
 

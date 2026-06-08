@@ -251,7 +251,9 @@ State refresh recalculates fields such as:
 | `updatedAt` | Latest known update. |
 | tokens/context | Evidence from events, TUI state, SQLite, or logs. |
 
-Old terminal children may be pruned to avoid unbounded growth. Pruning rows must not reduce `totalExecuted`.
+Old terminal children may be pruned to avoid unbounded growth. Terminal rows are
+retained for up to 3 days with a 1,500-row cap. Pruning rows must not reduce
+`totalExecuted`.
 
 ## Main mutation helpers
 

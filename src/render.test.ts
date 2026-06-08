@@ -155,6 +155,22 @@ describe("render", () => {
     ).toEqual(["done_recent"]);
   });
 
+  it("shows stale done items when completed history is enabled", () => {
+    const now = Date.parse("2026-04-30T10:20:00.000Z");
+    const hiddenDone = child({
+      id: "done_old",
+      status: "done",
+      color: "green",
+      endedAt: "2026-04-30T10:00:00.000Z",
+    });
+
+    expect(
+      visibleSubagentWorkItems([hiddenDone], now, {
+        showCompletedHistory: true,
+      }).map((item) => item.id),
+    ).toEqual(["done_old"]);
+  });
+
   it("keeps active running work visible and deprioritizes unrelated done rows", () => {
     const nowMs = Date.parse("2026-04-30T12:15:00.000Z");
     const children: ChildSessionState[] = [
@@ -196,6 +212,49 @@ describe("render", () => {
     expect(visible.some((item) => item.id === "subtask:historical")).toBe(
       false,
     );
+  });
+
+  it("shows unrelated done rows during active work when completed history is enabled", () => {
+    const nowMs = Date.parse("2026-04-30T12:15:00.000Z");
+    const children: ChildSessionState[] = [
+      child({
+        id: "subtask:active",
+        title: "Long running active work",
+        source: "subtask",
+        messageID: "msg_active",
+        status: "running",
+      }),
+      child({
+        id: "subtask:active-done",
+        title: "Recent completion in active thread",
+        source: "subtask",
+        messageID: "msg_active",
+        status: "done",
+        color: "green",
+        endedAt: "2026-04-30T12:14:00.000Z",
+        updatedAt: "2026-04-30T12:14:00.000Z",
+      }),
+      child({
+        id: "subtask:historical",
+        title: "Historical completion",
+        source: "subtask",
+        messageID: "msg_old",
+        status: "done",
+        color: "green",
+        endedAt: "2026-04-30T12:14:00.000Z",
+        updatedAt: "2026-04-30T12:14:00.000Z",
+      }),
+    ];
+
+    const visible = visibleSubagentWorkItems(children, nowMs, {
+      showCompletedHistory: true,
+    });
+
+    expect(visible.map((item) => item.id)).toEqual([
+      "subtask:active",
+      "subtask:active-done",
+      "subtask:historical",
+    ]);
   });
 
   it("sorts ties by id for stable priority", () => {
