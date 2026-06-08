@@ -962,9 +962,15 @@ function SidebarSubagents(props: {
     ).sort(byPriority),
   );
 
+  const visibleChildren = createMemo(() => {
+    const ownChildren = children();
+    if (ownChildren.length > 0) return ownChildren;
+    return otherChildren();
+  });
+
   const counts = createMemo(() => {
     const result = { running: 0, done: 0, error: 0 };
-    for (const child of children()) {
+    for (const child of visibleChildren()) {
       if (child.status === "running") result.running += 1;
       if (child.status === "done") result.done += 1;
       if (child.status === "error") result.error += 1;
@@ -972,12 +978,6 @@ function SidebarSubagents(props: {
     return result;
   });
   const totalExecuted = createMemo(() => props.state().totalExecuted ?? 0);
-
-  const visibleChildren = createMemo(() => {
-    const ownChildren = children();
-    if (ownChildren.length > 0) return ownChildren;
-    return otherChildren();
-  });
 
   const showingOtherSessions = createMemo(
     () => children().length === 0 && otherChildren().length > 0,
