@@ -95,6 +95,102 @@ describe("render", () => {
     ]);
   });
 
+  it("keeps multiple generic wrappers visible when they are the only representation", () => {
+    const children: ChildSessionState[] = [
+      child({
+        id: "tool:ping-1",
+        title: "task",
+        source: "tool",
+        messageID: "msg_ping_1",
+        targetSessionID: "ses_ping_1",
+      }),
+      child({
+        id: "ses_ping_1",
+        title: "Ping subagent one",
+        source: "session",
+        messageID: "msg_ping_1",
+        targetSessionID: "ses_ping_1",
+        status: "done",
+        color: "green",
+        endedAt: "2026-04-30T10:02:00.000Z",
+      }),
+      child({
+        id: "tool:ping-2",
+        title: "delegate",
+        source: "tool",
+        messageID: "msg_ping_2",
+        targetSessionID: "ses_ping_2",
+      }),
+      child({
+        id: "ses_ping_2",
+        title: "Ping subagent two",
+        source: "session",
+        messageID: "msg_ping_2",
+        targetSessionID: "ses_ping_2",
+        status: "done",
+        color: "green",
+        endedAt: "2026-04-30T10:03:00.000Z",
+      }),
+    ];
+
+    const collapsed = collapseSubagentWorkItems(children);
+
+    expect(collapsed.map((item) => item.id)).toEqual([
+      "tool:ping-1",
+      "tool:ping-2",
+    ]);
+    expect(collapsed).toEqual([
+      expect.objectContaining({ status: "done", targetSessionID: "ses_ping_1" }),
+      expect.objectContaining({ status: "done", targetSessionID: "ses_ping_2" }),
+    ]);
+  });
+
+  it("shows retained generic completed rows when completed history is enabled", () => {
+    const now = Date.parse("2026-04-30T10:20:00.000Z");
+    const children: ChildSessionState[] = [
+      child({
+        id: "tool:old-ping-1",
+        title: "task",
+        source: "tool",
+        messageID: "msg_old_ping_1",
+        targetSessionID: "ses_old_ping_1",
+      }),
+      child({
+        id: "ses_old_ping_1",
+        title: "Old ping one",
+        source: "session",
+        messageID: "msg_old_ping_1",
+        targetSessionID: "ses_old_ping_1",
+        status: "done",
+        color: "green",
+        endedAt: "2026-04-30T10:02:00.000Z",
+      }),
+      child({
+        id: "tool:old-ping-2",
+        title: "delegate",
+        source: "tool",
+        messageID: "msg_old_ping_2",
+        targetSessionID: "ses_old_ping_2",
+      }),
+      child({
+        id: "ses_old_ping_2",
+        title: "Old ping two",
+        source: "session",
+        messageID: "msg_old_ping_2",
+        targetSessionID: "ses_old_ping_2",
+        status: "done",
+        color: "green",
+        endedAt: "2026-04-30T10:03:00.000Z",
+      }),
+    ];
+
+    expect(
+      visibleSubagentWorkItems(children, now, {
+        showCompletedHistory: true,
+      }).map((item) => item.id),
+    ).toEqual(["tool:old-ping-1", "tool:old-ping-2"]);
+  });
+
   it("keeps one grouped row and avoids duplicate wrappers", () => {
     const children: ChildSessionState[] = [
       child({
