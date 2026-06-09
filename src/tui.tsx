@@ -1113,7 +1113,7 @@ function SidebarSubagents(props: {
   };
 
   const scrollSelectedChildIntoView = (): void => {
-    if (!scrollbox) return;
+    if (!scrollbox || !listFocusModeActive()) return;
     const selectedIndex = visibleChildIDs().findIndex(
       (id) => id === selectedChildID(),
     );
