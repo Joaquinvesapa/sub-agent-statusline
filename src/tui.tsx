@@ -80,14 +80,14 @@ const DONE_TOKEN_REHYDRATE_MAX_ATTEMPTS = 15;
 const HYDRATE_RETRY_BASE_DELAY_MS = 1000;
 const HYDRATE_RETRY_MAX_DELAY_MS = 30_000;
 const HYDRATE_RETRY_MAX_ATTEMPTS = 6;
-const RUNNING_RECONCILE_MAINTENANCE_INTERVAL_MS = 10 * 60_000;
+const DEFAULT_RUNNING_RECONCILE_MAINTENANCE_INTERVAL_MS = 10 * 60_000;
 const RUNNING_RECONCILE_MAX_CANDIDATES = 8;
-const RUNNING_RECONCILE_INITIAL_BACKOFF_MS = 15_000;
-const RUNNING_RECONCILE_MAX_BACKOFF_MS = 5 * 60_000;
-const RUNNING_RECONCILE_MESSAGE_AGE_GATE_MS = 60_000;
-const RUNNING_RECONCILE_OLD_CANDIDATE_AGE_MS = 5 * 60_000;
-const CLOCK_ICON = "";
-const TOKEN_ICON = "";
+const DEFAULT_RUNNING_RECONCILE_INITIAL_BACKOFF_MS = 15_000;
+const DEFAULT_RUNNING_RECONCILE_MAX_BACKOFF_MS = 5 * 60_000;
+const DEFAULT_RUNNING_RECONCILE_MESSAGE_AGE_GATE_MS = 60_000;
+const DEFAULT_RUNNING_RECONCILE_OLD_CANDIDATE_AGE_MS = 5 * 60_000;
+const DEFAULT_CLOCK_ICON = "t";
+const DEFAULT_TOKEN_ICON = "#";
 const SIDEBAR_ARROW_EXPANDED = "▼";
 const SIDEBAR_ARROW_COLLAPSED = "▶";
 const SUBAGENTS_EXPANDED_KV_KEY = "subagents.sidebar.expanded";
@@ -694,7 +694,52 @@ function parseStaleRunningThresholdMs(): number {
   );
 }
 
+function parsePositiveMsEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (typeof raw !== "string" || raw.trim().length === 0) return fallback;
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
+function parseSingleCharEnv(name: string, fallback: string): string {
+  const raw = process.env[name];
+  if (typeof raw !== "string") return fallback;
+
+  const [first] = Array.from(raw.trim());
+  return first || fallback;
+}
+
 const STALE_RUNNING_THRESHOLD_MS = parseStaleRunningThresholdMs();
+const RUNNING_RECONCILE_MAINTENANCE_INTERVAL_MS = parsePositiveMsEnv(
+  "OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_INTERVAL_MS",
+  DEFAULT_RUNNING_RECONCILE_MAINTENANCE_INTERVAL_MS,
+);
+const RUNNING_RECONCILE_INITIAL_BACKOFF_MS = parsePositiveMsEnv(
+  "OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_INITIAL_BACKOFF_MS",
+  DEFAULT_RUNNING_RECONCILE_INITIAL_BACKOFF_MS,
+);
+const RUNNING_RECONCILE_MAX_BACKOFF_MS = parsePositiveMsEnv(
+  "OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_MAX_BACKOFF_MS",
+  DEFAULT_RUNNING_RECONCILE_MAX_BACKOFF_MS,
+);
+const RUNNING_RECONCILE_MESSAGE_AGE_GATE_MS = parsePositiveMsEnv(
+  "OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_MESSAGE_AGE_GATE_MS",
+  DEFAULT_RUNNING_RECONCILE_MESSAGE_AGE_GATE_MS,
+);
+const RUNNING_RECONCILE_OLD_CANDIDATE_AGE_MS = parsePositiveMsEnv(
+  "OPENCODE_SUBAGENT_STATUSLINE_RECONCILE_OLD_CANDIDATE_AGE_MS",
+  DEFAULT_RUNNING_RECONCILE_OLD_CANDIDATE_AGE_MS,
+);
+const CLOCK_ICON = parseSingleCharEnv(
+  "OPENCODE_SUBAGENT_STATUSLINE_CLOCK_ICON",
+  DEFAULT_CLOCK_ICON,
+);
+const TOKEN_ICON = parseSingleCharEnv(
+  "OPENCODE_SUBAGENT_STATUSLINE_TOKEN_ICON",
+  DEFAULT_TOKEN_ICON,
+);
 
 function resolveSidebarWidth(ctx: unknown): number | undefined {
   const source = asRecord(ctx);
