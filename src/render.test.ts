@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   byPriority,
   collapseSubagentWorkItems,
+  computeSessionLocalTotalExecuted,
   formatContext,
   formatContextCompact,
   formatContextDetails,
@@ -386,5 +387,194 @@ describe("render", () => {
     );
     expect(renderStatusLine(state)).toContain("Run tests 01:01");
     expect(renderStatusLine(state)).not.toContain("\u001B[");
+  });
+});
+
+describe("computeSessionLocalTotalExecuted", () => {
+  function stateWith(
+    children: ChildSessionState[],
+    countedIDs: string[] = [],
+  ): Pick<StatuslineState, "children" | "countedChildIDs"> {
+    return {
+      children: Object.fromEntries(children.map((c) => [c.id, c])),
+      countedChildIDs: Object.fromEntries(countedIDs.map((id) => [id, true])),
+    };
+  }
+
+  it("counts only counted identities for the current session", () => {
+    const children: ChildSessionState[] = [
+      child({
+        id: "tool:current-1",
+        parentID: "ses_current",
+        source: "tool",
+        title: "First done task",
+        status: "done",
+        color: "green",
+      }),
+      child({
+        id: "tool:current-2",
+        parentID: "ses_current",
+        source: "tool",
+        title: "Second error task",
+        status: "error",
+        color: "red",
+      }),
+      child({
+        id: "tool:current-running",
+        parentID: "ses_current",
+        source: "tool",
+        title: "Running task",
+        status: "running",
+        color: "yellow",
+      }),
+    ];
+
+    expect(
+      computeSessionLocalTotalExecuted(
+        stateWith(children, ["tool:current-1", "tool:current-2"]),
+        "ses_current",
+      ),
+    ).toBe(2);
+  });
+
+  it("excludes children from other sessions", () => {
+    const children: ChildSessionState[] = [
+      child({
+        id: "tool:current",
+        parentID: "ses_current",
+        source: "tool",
+        status: "done",
+        color: "green",
+      }),
+      child({
+        id: "tool:other",
+        parentID: "ses_other",
+        source: "tool",
+        status: "done",
+        color: "green",
+      }),
+    ];
+
+    expect(
+      computeSessionLocalTotalExecuted(
+        stateWith(children, ["tool:current", "tool:other"]),
+        "ses_current",
+      ),
+    ).toBe(1);
+  });
+
+  it("does not count children whose id is not in countedChildIDs", () => {
+    const children: ChildSessionState[] = [
+      child({
+        id: "tool:running-1",
+        parentID: "ses_current",
+        source: "tool",
+        status: "running",
+        color: "yellow",
+      }),
+      child({
+        id: "tool:running-2",
+        parentID: "ses_current",
+        source: "tool",
+        status: "done",
+        color: "green",
+      }),
+    ];
+
+    expect(
+      computeSessionLocalTotalExecuted(stateWith(children, []), "ses_current"),
+    ).toBe(0);
+  });
+
+  it("deduplicates synthetic/session pairs via collapseSubagentWorkItems", () => {
+    const children: ChildSessionState[] = [
+      child({
+        id: "tool:synthetic",
+        parentID: "ses_current",
+        source: "tool",
+        targetSessionID: "ses_child_session",
+        status: "done",
+        color: "green",
+      }),
+      child({
+        id: "ses_child_session",
+        parentID: "ses_current",
+        source: "session",
+        targetSessionID: "ses_child_session",
+        status: "done",
+        color: "green",
+      }),
+    ];
+
+    expect(
+      computeSessionLocalTotalExecuted(
+        stateWith(children, ["ses_child_session"]),
+        "ses_current",
+      ),
+    ).toBe(1);
+  });
+
+  it("returns 0 for an empty session", () => {
+    const children: ChildSessionState[] = [
+      child({
+        id: "tool:other",
+        parentID: "ses_other",
+        source: "tool",
+        status: "done",
+        color: "green",
+      }),
+    ];
+
+    expect(
+      computeSessionLocalTotalExecuted(
+        stateWith(children, ["tool:other"]),
+        "ses_empty",
+      ),
+    ).toBe(0);
+  });
+
+  it("does not count a terminal tool wrapper with no counted identity", () => {
+    const children: ChildSessionState[] = [
+      child({
+        id: "tool:uncounted-wrapper",
+        parentID: "ses_current",
+        source: "tool",
+        title: "task",
+        status: "done",
+        color: "green",
+      }),
+    ];
+
+    expect(
+      computeSessionLocalTotalExecuted(stateWith(children, []), "ses_current"),
+    ).toBe(0);
+  });
+
+  it("counts a collapsed synthetic row once when targetSessionID is counted", () => {
+    const children: ChildSessionState[] = [
+      child({
+        id: "tool:synth",
+        parentID: "ses_current",
+        source: "tool",
+        targetSessionID: "ses_target",
+        status: "done",
+        color: "green",
+      }),
+      child({
+        id: "ses_target",
+        parentID: "ses_current",
+        source: "session",
+        targetSessionID: "ses_target",
+        status: "done",
+        color: "green",
+      }),
+    ];
+
+    expect(
+      computeSessionLocalTotalExecuted(
+        stateWith(children, ["ses_target"]),
+        "ses_current",
+      ),
+    ).toBe(1);
   });
 });

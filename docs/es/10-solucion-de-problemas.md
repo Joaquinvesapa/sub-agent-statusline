@@ -75,7 +75,7 @@ Si estás probando localmente, asegurate de que `tui.json` apunte a la ruta loca
 Posibles causas:
 
 1. OpenCode no emitió todavía un evento que el plugin pueda interpretar.
-2. La actividad pertenece a otra sesión.
+2. La actividad pertenece a otra sesión, así que no aparece en la sidebar de la sesión actual.
 3. La fila existe pero fue colapsada con otra representación.
 4. La sesión todavía no tiene `targetSessionID` navegable.
 5. El plugin no cargó correctamente.
@@ -85,7 +85,7 @@ Qué revisar:
 - logs de OpenCode;
 - si la sidebar está habilitada;
 - si la sección está colapsada;
-- si hay actividad en “otras sesiones”;
+- si hay actividad en el resumen global de home o después de navegar a la sesión dueña;
 - si `Alt+B` enfoca la lista;
 - si el problema se reproduce con una nueva delegación.
 
@@ -126,7 +126,9 @@ Si querés entender la regla, leé:
 
 También puede ser correcto.
 
-`Σ total` cuenta ejecuciones reales, no filas visibles.
+`Σ total` cuenta ejecuciones reales, no filas visibles. En la sidebar está
+limitado a la sesión actual; en el resumen de home y el statusline textual sigue
+siendo global entre sesiones.
 
 Casos normales:
 

@@ -90,7 +90,9 @@ OpenCode puede emitir muchas palabras distintas para estados. El plugin las norm
 
 El total mostrado como `Σ total` no es una suma de filas visibles.
 
-Representa ejecuciones reales de subagentes.
+Representa ejecuciones reales de subagentes. En la sidebar de la TUI, `Σ total`
+está limitado a la sesión actual. En el resumen de home y el statusline textual,
+`Σ total` sigue siendo global entre sesiones.
 
 Por eso estas situaciones son normales:
 

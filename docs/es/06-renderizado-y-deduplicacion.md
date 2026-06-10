@@ -179,10 +179,10 @@ Reglas generales:
 Esto mantiene la sidebar útil y evita que se convierta en un historial largo.
 
 La sidebar puede relajar temporalmente los filtros de `done` con completed
-history. Cuando completed history está activo, las filas `done` viejas y las
-filas `done` no relacionadas con el trabajo activo vuelven a mostrarse después
-del collapse/dedupe normal. El statusline textual y el resumen de home conservan
-el filtrado por defecto.
+history. Cuando completed history está activo, las filas `done` viejas de la
+sesión actual que estaban ocultas vuelven a mostrarse después del
+collapse/dedupe normal. El statusline textual y el resumen de home conservan el
+filtrado por defecto y los totales globales.
 
 ## Relación con poda de estado
 
@@ -281,7 +281,8 @@ Ejemplo:
 Importante:
 
 - `running`, `done` y `error` describen filas visibles o relevantes;
-- `Σ total` viene del contador semántico;
+- el `Σ total` de la sidebar se deriva de contadores semánticos para la sesión actual;
+- el `Σ total` de home y del statusline textual usa el contador semántico global;
 - el total puede ser mayor que la cantidad de filas visibles actuales.
 
 ## Casos donde ver menos filas es correcto
@@ -367,8 +368,7 @@ La sidebar TUI usa el resultado del render/derivación para mostrar filas humana
 
 Además, aplica reglas propias de UX:
 
-- preferir subagentes de la sesión actual;
-- mostrar “Other sessions” cuando corresponda;
+- mostrar solo subagentes de la sesión actual;
 - permitir foco y navegación;
 - abrir una sesión solo si hay `targetSessionID` navegable;
 - conservar scroll y estado expandido/colapsado.

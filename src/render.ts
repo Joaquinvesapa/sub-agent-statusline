@@ -374,6 +374,30 @@ export function visibleSubagentWorkItems(
   });
 }
 
+export function computeSessionLocalTotalExecuted(
+  state: Pick<StatuslineState, "children" | "countedChildIDs">,
+  sessionID: string,
+): number {
+  const allChildren = Object.values(state.children);
+  const sessionChildren = allChildren.filter(
+    (child) => child.parentID === sessionID,
+  );
+  const collapsed = collapseSubagentWorkItems(sessionChildren);
+  const countedIDs = state.countedChildIDs;
+  const seen = new Set<string>();
+
+  for (const child of collapsed) {
+    if (child.id && countedIDs[child.id]) {
+      seen.add(child.id);
+    }
+    if (child.targetSessionID && countedIDs[child.targetSessionID]) {
+      seen.add(child.targetSessionID);
+    }
+  }
+
+  return seen.size;
+}
+
 export function renderStatusLine(state: StatuslineState): string {
   const children = visibleSubagentWorkItems(Object.values(state.children)).sort(
     byPriority,

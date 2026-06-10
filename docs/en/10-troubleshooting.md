@@ -75,7 +75,7 @@ If testing locally, make sure `tui.json` points to local `dist/tui.js`, not the 
 Possible causes:
 
 1. OpenCode has not emitted an interpretable event yet.
-2. Activity belongs to another session.
+2. Activity belongs to another session, so it is not shown in the current-session sidebar.
 3. The row exists but was collapsed with another representation.
 4. The session does not have a navigable `targetSessionID` yet.
 5. The plugin did not load correctly.
@@ -85,7 +85,7 @@ Check:
 - OpenCode logs;
 - whether the sidebar is enabled;
 - whether the section is collapsed;
-- whether activity appears under other sessions;
+- whether activity appears in the global home summary or after navigating to the owning session;
 - whether `Alt+B` focuses the list;
 - whether the issue reproduces with a new delegation.
 
@@ -126,7 +126,9 @@ See:
 
 This can also be correct.
 
-`Σ total` counts real executions, not visible rows.
+`Σ total` counts real executions, not visible rows. In the sidebar it is scoped
+to the current session; in the home summary and text statusline it remains
+global across sessions.
 
 | Case | Why it happens |
 | --- | --- |
