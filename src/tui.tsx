@@ -31,6 +31,7 @@ import { applySubagentEvent, extractChildDetails } from "./events.js";
 import { readOpenCodeLogFileIfSmall } from "./logs.js";
 import {
   byPriority,
+  computeSessionLocalTotalExecuted,
   formatDuration,
   renderStatusLine,
   visibleSubagentWorkItems,
@@ -967,21 +968,7 @@ function SidebarSubagents(props: {
     ).sort(byPriority),
   );
 
-  const otherChildren = createMemo(() =>
-    visibleSubagentWorkItems(
-      Object.values(props.state().children).filter(
-        (child) => child.parentID !== props.sessionID,
-      ),
-      props.nowMs(),
-      completedHistoryOptions(),
-    ).sort(byPriority),
-  );
-
-  const visibleChildren = createMemo(() => {
-    const ownChildren = children();
-    if (ownChildren.length > 0) return ownChildren;
-    return otherChildren();
-  });
+  const visibleChildren = children;
 
   const counts = createMemo(() => {
     const result = { running: 0, done: 0, error: 0 };
@@ -992,10 +979,8 @@ function SidebarSubagents(props: {
     }
     return result;
   });
-  const totalExecuted = createMemo(() => props.state().totalExecuted ?? 0);
-
-  const showingOtherSessions = createMemo(
-    () => children().length === 0 && otherChildren().length > 0,
+  const totalExecuted = createMemo(() =>
+    computeSessionLocalTotalExecuted(props.state(), props.sessionID),
   );
 
   const visibleChildIDs = createMemo(() =>
@@ -1029,7 +1014,7 @@ function SidebarSubagents(props: {
     const contentHeight =
       visibleChildren().reduce(
         (height, child) => height + subagentRowHeight(child),
-        showingOtherSessions() ? 1 : 0,
+        0,
       ) +
       Math.max(0, visibleChildren().length - 1) * SUBAGENTS_ROW_GAP;
 
@@ -1104,7 +1089,7 @@ function SidebarSubagents(props: {
   };
 
   const rowTopForIndex = (index: number): number => {
-    let top = showingOtherSessions() ? 1 : 0;
+    let top = 0;
     for (let i = 0; i < index; i += 1) {
       const child = visibleChildren()[i];
       if (child) top += subagentRowHeight(child) + SUBAGENTS_ROW_GAP;
@@ -1222,7 +1207,6 @@ function SidebarSubagents(props: {
     props.expanded();
     visibleChildIDs().join("|");
     visibleChildLayoutSignature();
-    showingOtherSessions();
     props.sidebarWidth?.();
 
     if (restoreScrollTimeout) clearTimeout(restoreScrollTimeout);
@@ -1475,9 +1459,6 @@ function SidebarSubagents(props: {
           viewportCulling={false}
         >
           <box flexDirection="column" rowGap={SUBAGENTS_ROW_GAP}>
-            <Show when={showingOtherSessions()}>
-              <text fg={props.theme.textMuted}>Other sessions</text>
-            </Show>
             <For each={visibleChildIDs()}>
               {(childID: string) => <ChildRow childID={childID} />}
             </For>
