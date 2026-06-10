@@ -185,7 +185,7 @@ That is why there can be more children in state than visible rows in the UI.
 
 It handles initialization, visual slots, the sidebar, hydration, reconciliation, token/context best-effort loading, navigation, prompt focus preservation, and lifecycle cleanup.
 
-The sidebar prefers subagents related to the current session. If none exist, it can show relevant activity from other sessions. Rows are navigable only when a real `ses_*` target is known.
+The sidebar shows only subagents related to the current session. It does not show activity from other sessions. Rows are navigable only when a real `ses_*` target is known.
 
 ## Reconciliation
 

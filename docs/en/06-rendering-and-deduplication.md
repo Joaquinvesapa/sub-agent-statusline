@@ -161,9 +161,10 @@ General behavior:
 This keeps the sidebar useful instead of turning it into a long history.
 
 The sidebar can temporarily relax the `done` filters through completed history.
-When completed history is enabled, stale `done` rows and unrelated `done` rows
-hidden during active work become visible again after the normal collapse/dedupe
-step. Text statusline output and the home summary keep the default filtering.
+When completed history is enabled, stale `done` rows from the current session
+that were hidden during active work become visible again after the normal
+collapse/dedupe step. Text statusline output and the home summary keep the
+default filtering and global totals.
 
 ## Visibility vs pruning
 
@@ -238,7 +239,8 @@ Aggregate output may look like:
 Important distinction:
 
 - `running`, `done`, and `error` describe visible or relevant rows;
-- `Σ total` comes from semantic counters;
+- sidebar `Σ total` is derived from semantic counters for the current session;
+- home and text statusline `Σ total` use the global semantic counter;
 - the total may be larger than the current visible row count.
 
 ## When fewer rows are correct
@@ -266,8 +268,7 @@ The TUI sidebar consumes processed rows so it can show delegated work instead of
 
 It also applies UX rules:
 
-- prefer current-session subagents;
-- show other sessions when appropriate;
+- show only current-session subagents;
 - support focus and navigation;
 - open a session only when `targetSessionID` is navigable;
 - preserve scroll and expanded/collapsed state.

@@ -4,7 +4,9 @@ El estado interno del plugin vive en `src/state.ts`. Su trabajo es guardar evide
 
 La idea principal:
 
-> `children` guarda lo que el plugin sabe. `totalExecuted` cuenta trabajo real. La UI puede mostrar menos filas que las guardadas.
+> `children` guarda lo que el plugin sabe. `totalExecuted` cuenta trabajo real entre sesiones. La UI puede mostrar menos filas que las guardadas.
+
+La sidebar de la TUI no consume `state.totalExecuted` directamente. Deriva un total local a la sesión desde `children` y `countedChildIDs`, mientras que el resumen de home y el statusline textual siguen usando el `totalExecuted` global.
 
 ## Estado central
 
@@ -25,7 +27,7 @@ type StatuslineState = {
 | ----------------- | ------------------------------------------------------------------- |
 | `children`        | Mapa de work items conocidos: sesiones reales, subtasks y wrappers. |
 | `countedChildIDs` | Identidades que ya fueron contadas como ejecución.                  |
-| `totalExecuted`   | Total semántico de ejecuciones reales.                              |
+| `totalExecuted`   | Total semántico de ejecuciones reales entre sesiones.               |
 | `updatedAt`       | Última actualización derivada del estado.                           |
 
 ## ChildSessionState
@@ -220,7 +222,7 @@ Esto pasa cuando:
 - aparece una sesión real correlacionada;
 - el estado cargado desde disco se normaliza.
 
-El objetivo es mantener `totalExecuted` correcto y evitar duplicados.
+El objetivo es mantener `totalExecuted` correcto y evitar duplicados. La sidebar deriva su `Σ total` local a la sesión por separado del contador global.
 
 ## Persistencia
 
