@@ -95,6 +95,7 @@ La UI visual completa se deja fuera de E2E profundo por ahora para evitar tests 
 | `src/state.test.ts`               | Estado, contadores, transiciones, poda, persistencia y normalización.                   |
 | `src/render.test.ts`              | Render textual, collapse, visibilidad, duración, tokens y color/no-color.               |
 | `src/reconcile.test.ts`           | Normalización de estados, stale-running, backoff y fail-closed.                         |
+| `src/text-width.test.ts`          | Ancho de columnas para texto CJK/full-width, marcas combinantes y truncado.              |
 | `src/tui.test.ts`                 | Registro de comandos, keybinding `Alt+B` y fallback legacy.                             |
 | `test/index.integration.test.ts`  | Plugin runtime, `state.json`, `status.txt`, preserve-state y errores de filesystem.     |
 | `test/helpers/runtime-harness.ts` | Helpers para temp dirs, fixtures, env vars y fake time.                                 |
@@ -117,7 +118,7 @@ Punto importante:
 
 > `src/tui.tsx` está excluido de coverage. No digas que la TUI visual completa está cubierta por tests automáticos.
 
-La cobertura actual se enfoca en módulos `.ts` determinísticos: eventos, estado, render, reconcile, comandos y runtime.
+La cobertura actual se enfoca en módulos `.ts` determinísticos: eventos, estado, render, reconcile, helpers de ancho textual, comandos y runtime.
 
 ## Patrón Arrange / Act / Assert
 

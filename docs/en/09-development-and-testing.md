@@ -89,6 +89,7 @@ Deep visual TUI E2E automation is intentionally deferred to avoid brittle host-d
 | `src/state.test.ts` | State, counters, transitions, pruning, persistence, normalization. |
 | `src/render.test.ts` | Text rendering, collapse, visibility, duration, tokens, color/no-color. |
 | `src/reconcile.test.ts` | Status normalization, stale-running, backoff, fail-closed behavior. |
+| `src/text-width.test.ts` | Terminal column width for CJK/full-width text, combining marks, and truncation. |
 | `src/tui.test.ts` | Command registration, `Alt+B` keybinding, legacy fallback. |
 | `test/index.integration.test.ts` | Runtime plugin, `state.json`, `status.txt`, preserve-state, filesystem failures. |
 | `test/helpers/runtime-harness.ts` | Helpers for temp dirs, fixtures, env vars, and fake time. |
@@ -111,7 +112,7 @@ Important:
 
 > `src/tui.tsx` is excluded from coverage. Do not claim the complete visual TUI is automatically covered.
 
-Coverage focuses on deterministic `.ts` modules: events, state, render, reconcile, commands, and runtime.
+Coverage focuses on deterministic `.ts` modules: events, state, render, reconcile, text width helpers, commands, and runtime.
 
 ## Arrange / Act / Assert
 

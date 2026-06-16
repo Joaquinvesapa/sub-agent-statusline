@@ -28,6 +28,10 @@ It can include:
 - navigable session indicator;
 - current-session or other-session grouping.
 
+Long labels and summaries are compacted using terminal column width rather than
+JavaScript string length. This keeps wide CJK/full-width text, such as Japanese
+summaries, within the sidebar budget when wrapping or truncating rows.
+
 Conceptual example:
 
 ```txt

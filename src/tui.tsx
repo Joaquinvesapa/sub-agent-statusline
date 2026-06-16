@@ -20,21 +20,16 @@ import { dirname, join } from "node:path";
 import {
   For,
   Show,
-  createRoot,
   createEffect,
   createMemo,
+  createRoot,
   createSignal,
   onCleanup,
 } from "solid-js";
 import type { Accessor } from "solid-js";
 import { applySubagentEvent, extractChildDetails } from "./events.js";
+import { t } from "./i18n.js";
 import { readOpenCodeLogFileIfSmall } from "./logs.js";
-import {
-  byPriority,
-  formatDuration,
-  renderStatusLine,
-  visibleSubagentWorkItems,
-} from "./render.js";
 import {
   canSafelyCloseNoTargetPersistedCandidate,
   capCandidates,
@@ -51,9 +46,11 @@ import {
   type RunningReconcileEvidence,
 } from "./reconcile.js";
 import {
-  focusPromptWithDeferredRetry,
-  resolveSidebarReturnFocusAction,
-} from "./tui-focus.js";
+  byPriority,
+  formatDuration,
+  renderStatusLine,
+  visibleSubagentWorkItems,
+} from "./render.js";
 import {
   createEmptyState,
   markChildStatus,
@@ -67,8 +64,12 @@ import {
   type ChildSessionState,
   type StatuslineState,
 } from "./state.js";
+import { takeColumns, textColumns, truncateToColumns } from "./text-width.js";
 import { registerSubagentCommands } from "./tui-commands.js";
-import { t } from "./i18n.js";
+import {
+  focusPromptWithDeferredRetry,
+  resolveSidebarReturnFocusAction,
+} from "./tui-focus.js";
 
 const TUI_PLUGIN_ID = "subagent-statusline.tui";
 const ELAPSED_TICK_MS = 1000;
@@ -717,11 +718,8 @@ function resolveSidebarWidth(ctx: unknown): number | undefined {
   );
 }
 
-function ellipsize(value: string, maxChars: number): string {
-  if (maxChars <= 0) return "";
-  if (value.length <= maxChars) return value;
-  if (maxChars <= 1) return "…";
-  return `${value.slice(0, Math.max(0, maxChars - 1))}…`;
+function ellipsize(value: string, maxColumns: number): string {
+  return truncateToColumns(value, maxColumns);
 }
 
 function splitParentheticalTitle(title: string): {
@@ -755,7 +753,7 @@ function formatSecondaryLine(
   if (!continuation) return parenthetical;
   if (!parenthetical) return continuation;
 
-  const parentheticalWidth = Math.min(parenthetical.length, width);
+  const parentheticalWidth = Math.min(textColumns(parenthetical), width);
   const continuationWidth = width - parentheticalWidth - 1;
   if (continuationWidth >= MIN_LABEL_WIDTH) {
     return `${ellipsize(continuation, continuationWidth)} ${ellipsize(parenthetical, parentheticalWidth)}`;
@@ -827,10 +825,13 @@ function wrapCompactText(
   const lines: string[] = [];
   let remaining = normalized;
 
-  while (remaining.length > width && lines.length < maxLines - 1) {
-    const slice = remaining.slice(0, width + 1);
+  while (textColumns(remaining) > width && lines.length < maxLines - 1) {
+    const slice = takeColumns(remaining, width + 1);
     const breakAt = slice.lastIndexOf(" ");
-    const take = breakAt >= MIN_LABEL_WIDTH ? breakAt : width;
+    const take =
+      breakAt >= 0 && textColumns(slice.slice(0, breakAt)) >= MIN_LABEL_WIDTH
+        ? breakAt
+        : Math.max(1, slice.length);
     lines.push(remaining.slice(0, take).trimEnd());
     remaining = remaining.slice(take).trimStart();
   }
@@ -863,12 +864,13 @@ function formatChildRowLine(input: {
   const parenthetical = childParenthetical(input.child);
 
   for (const meta of contextVariants(input.child)) {
-    const detailChars = 2 + elapsed.length + (meta ? 3 + meta.length : 0);
+    const detailChars =
+      2 + textColumns(elapsed) + (meta ? 3 + textColumns(meta) : 0);
     const labelBudget = Math.min(
       width - 2,
       width - Math.max(0, detailChars - width),
     );
-    if (labelBudget >= MIN_LABEL_WIDTH || meta.length === 0) {
+    if (labelBudget >= MIN_LABEL_WIDTH || textColumns(meta) === 0) {
       const labelLines = wrapCompactText(
         title.label,
         Math.max(1, labelBudget),

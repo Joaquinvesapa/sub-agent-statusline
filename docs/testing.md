@@ -6,7 +6,7 @@ This project uses **Vitest** for automated tests and **@vitest/coverage-v8** for
 
 The suite has two layers:
 
-- **Unit tests** cover pure logic in `src/events.ts`, `src/state.ts`, and `src/render.ts`. These tests should be fast, table-friendly, and focused on behavior: parsed session data, state transitions, counters, formatting, and safe handling of malformed input.
+- **Unit tests** cover pure logic in `src/events.ts`, `src/state.ts`, `src/render.ts`, and focused helpers such as `src/text-width.ts`. These tests should be fast, table-friendly, and focused on behavior: parsed session data, state transitions, counters, formatting, terminal text width, and safe handling of malformed input.
 - **Runtime integration tests** cover `src/index.ts`, where the plugin touches the filesystem and OpenCode-style event handling. These tests instantiate the plugin against isolated temporary directories and assert persisted state/output.
 
 Deep TUI and full OpenCode host end-to-end automation are intentionally deferred. The current priority is a reliable core runtime layer before adding expensive or brittle UI automation.
@@ -18,6 +18,7 @@ Deep TUI and full OpenCode host end-to-end automation are intentionally deferred
 | `src/events.test.ts`              | Event parsing, session ID extraction, event-to-state updates, details/token normalization, and malformed event safety.                                             |
 | `src/state.test.ts`               | State invariants, counters, transitions, pruning, persistence helpers, environment path resolution, and detail merging.                                            |
 | `src/render.test.ts`              | Statusline rendering, visibility rules, collapse behavior, duration/token formatting, and color/no-color output semantics.                                         |
+| `src/text-width.test.ts`          | Terminal column width helpers for CJK/full-width text, combining marks, and truncation within display budgets.                                                     |
 | `test/index.integration.test.ts`  | Runtime plugin initialization, event handling, `state.json` persistence, `status.txt` writes, preserve-state behavior, malformed events, and write-failure safety. |
 | `test/helpers/runtime-harness.ts` | Reusable helpers for temp dirs, env overrides, fixtures, filesystem assertions, and fake-time setup.                                                               |
 | `test/setup.ts`                   | Global cleanup after each test: timers, mocks, selected env vars, and registered temp directories.                                                                 |
@@ -82,7 +83,7 @@ pnpm typecheck
 ## Adding a unit test
 
 1. Pick the module behavior you want to protect.
-2. Add or extend the co-located test file: `src/events.test.ts`, `src/state.test.ts`, or `src/render.test.ts`.
+2. Add or extend the co-located test file: `src/events.test.ts`, `src/state.test.ts`, `src/render.test.ts`, or another focused unit test such as `src/text-width.test.ts`.
 3. Arrange minimal inputs. Reuse existing helpers or fixtures only when they make the test clearer.
 4. Act by calling the public function under test.
 5. Assert behavior, not implementation details.
