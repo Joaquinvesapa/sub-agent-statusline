@@ -43,6 +43,12 @@ jobs:
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level moderate
 
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
       - name: Verify package contents
         run: pnpm pack --dry-run
 

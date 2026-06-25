@@ -1,4 +1,9 @@
+import { countRetainedSubagentStatuses } from "./state.js";
 import type { ChildSessionState, StatuslineState } from "./state.js";
+import {
+  correlateSubagentWorkItems,
+  mergeProxyMetadataWithRealExecution,
+} from "./subagent-classification.js";
 
 const ansi = {
   reset: "\u001B[0m",
@@ -147,206 +152,35 @@ export function byPriority(a: ChildSessionState, b: ChildSessionState): number {
   return a.id.localeCompare(b.id);
 }
 
-const RECENT_DONE_VISIBLE_MS = 10 * 60 * 1000;
+const RECENT_TERMINAL_VISIBLE_MS = 10 * 60 * 1000;
 
 interface VisibleSubagentWorkItemsOptions {
   showCompletedHistory?: boolean;
 }
 
-function normalizeWorkItemTitle(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/\s*\([^)]*\)\s*/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function relatedWorkItemTitles(a: string, b: string): boolean {
-  const left = normalizeWorkItemTitle(a);
-  const right = normalizeWorkItemTitle(b);
-  if (!left || !right) return false;
-  return left.includes(right) || right.includes(left);
-}
-
-function sameAgentName(a: string | undefined, b: string | undefined): boolean {
-  if (!a || !b) return true;
-  return normalizeWorkItemTitle(a) === normalizeWorkItemTitle(b);
-}
-
-function isGenericToolWrapper(child: ChildSessionState): boolean {
-  if (child.source !== "tool") return false;
-  const title = normalizeWorkItemTitle(child.title);
-  return title === "delegate" || title === "task";
-}
-
-function sessionMatchesSynthetic(
-  session: ChildSessionState,
-  synthetic: ChildSessionState,
-): boolean {
-  if (session.source !== "session" && !session.id.startsWith("ses_"))
-    return false;
-  if (session.parentID !== synthetic.parentID) return false;
-  if (synthetic.targetSessionID === session.id) return true;
-  if (session.targetSessionID === synthetic.id) return true;
-  if (
-    synthetic.messageID &&
-    session.messageID &&
-    synthetic.messageID === session.messageID
-  ) {
-    return true;
-  }
-  if (isGenericToolWrapper(synthetic)) return false;
-  return (
-    sameAgentName(session.agentName, synthetic.agentName) &&
-    relatedWorkItemTitles(session.title, synthetic.title)
-  );
-}
-
-function messageKey(parentID: string, messageID: string): string {
-  return `${parentID}\0${messageID}`;
-}
-
-function betterPriority(
-  current: ChildSessionState | undefined,
-  candidate: ChildSessionState,
-): ChildSessionState {
-  if (!current) return candidate;
-  return byPriority(candidate, current) < 0 ? candidate : current;
-}
-
-function mergeSyntheticWithSession(
-  synthetic: ChildSessionState,
-  session: ChildSessionState | undefined,
-): ChildSessionState {
-  if (!session) return synthetic;
-  return {
-    ...synthetic,
-    status: session.status,
-    color: session.color,
-    startedAt: session.startedAt ?? synthetic.startedAt,
-    updatedAt: session.updatedAt ?? synthetic.updatedAt,
-    endedAt: session.endedAt ?? synthetic.endedAt,
-    elapsedMs: session.elapsedMs ?? synthetic.elapsedMs,
-    tokens: session.tokens ?? synthetic.tokens,
-    targetSessionID: session.id,
-    agentName: synthetic.agentName ?? session.agentName,
-  };
-}
-
 export function collapseSubagentWorkItems(
   children: ChildSessionState[],
 ): ChildSessionState[] {
-  const syntheticChildren: ChildSessionState[] = [];
-  const syntheticByParentID = new Map<string, ChildSessionState[]>();
-  const sessionCandidatesByParentID = new Map<string, ChildSessionState[]>();
+  return correlateSubagentWorkItems(children).map(({ real, proxies }) =>
+    proxies.reduce(
+      (current, proxy) => mergeProxyMetadataWithRealExecution(current, proxy),
+      real,
+    ),
+  );
+}
 
-  for (const child of children) {
-    const isSynthetic = child.source === "tool" || child.source === "subtask";
-    if (isSynthetic) {
-      syntheticChildren.push(child);
-      const siblings = syntheticByParentID.get(child.parentID);
-      if (siblings) {
-        siblings.push(child);
-      } else {
-        syntheticByParentID.set(child.parentID, [child]);
-      }
-
-    }
-
-    if (child.source === "session" || child.id.startsWith("ses_")) {
-      const candidates = sessionCandidatesByParentID.get(child.parentID);
-      if (candidates) {
-        candidates.push(child);
-      } else {
-        sessionCandidatesByParentID.set(child.parentID, [child]);
-      }
-    }
-  }
-
-  const sessionBySyntheticID = new Map<string, ChildSessionState>();
-  const hiddenSyntheticToolIDs = new Set<string>();
-
-  for (const synthetic of syntheticChildren) {
-    let bestSession: ChildSessionState | undefined;
-    const sessionCandidates =
-      sessionCandidatesByParentID.get(synthetic.parentID) ?? [];
-    for (const candidate of sessionCandidates) {
-      if (!sessionMatchesSynthetic(candidate, synthetic)) {
-        continue;
-      }
-      bestSession = betterPriority(bestSession, candidate);
-    }
-    if (bestSession) {
-      sessionBySyntheticID.set(synthetic.id, bestSession);
-    }
-  }
-
-  for (const siblings of syntheticByParentID.values()) {
-    for (const child of siblings) {
-      if (child.source !== "tool") continue;
-      if (isGenericToolWrapper(child)) {
-        if (siblings.some((sibling) => !isGenericToolWrapper(sibling))) {
-          hiddenSyntheticToolIDs.add(child.id);
-        }
-        continue;
-      }
-
-      for (const sibling of siblings) {
-        if (sibling.id === child.id) continue;
-        if (relatedWorkItemTitles(sibling.title, child.title)) {
-          hiddenSyntheticToolIDs.add(child.id);
-          break;
-        }
-      }
-    }
-  }
-
-  const hiddenTargetSessionIDs = new Set<string>();
-  const hiddenMessageKeys = new Set<string>();
-  const hiddenMatchedSessionIDs = new Set<string>();
-  for (const synthetic of syntheticChildren) {
-    if (hiddenSyntheticToolIDs.has(synthetic.id)) continue;
-    if (synthetic.targetSessionID) {
-      hiddenTargetSessionIDs.add(synthetic.targetSessionID);
-    }
-    if (synthetic.messageID) {
-      hiddenMessageKeys.add(messageKey(synthetic.parentID, synthetic.messageID));
-    }
-    const matchedSession = sessionBySyntheticID.get(synthetic.id);
-    if (matchedSession?.source === "session") {
-      hiddenMatchedSessionIDs.add(matchedSession.id);
-    }
-  }
-
-  return children
-    .filter((child) => {
-      if (child.source === "session") {
-        return !(
-          hiddenTargetSessionIDs.has(child.id) ||
-          (child.messageID &&
-            hiddenMessageKeys.has(
-              messageKey(child.parentID, child.messageID),
-            )) ||
-          hiddenMatchedSessionIDs.has(child.id)
-        );
-      }
-
-      if (child.source !== "tool") return true;
-      return !hiddenSyntheticToolIDs.has(child.id);
-    })
-    .map((child) =>
-      mergeSyntheticWithSession(child, sessionBySyntheticID.get(child.id)),
-    );
+function isTerminalWorkItem(child: ChildSessionState): boolean {
+  return child.status === "done" || child.status === "error";
 }
 
 export function isVisibleWorkItem(
   child: ChildSessionState,
   nowMs = Date.now(),
 ): boolean {
-  if (child.status !== "done") return true;
+  if (!isTerminalWorkItem(child)) return true;
   const endedMs = Date.parse(child.endedAt ?? child.updatedAt);
   if (Number.isNaN(endedMs)) return false;
-  return nowMs - endedMs <= RECENT_DONE_VISIBLE_MS;
+  return nowMs - endedMs <= RECENT_TERMINAL_VISIBLE_MS;
 }
 
 export function visibleSubagentWorkItems(
@@ -368,7 +202,7 @@ export function visibleSubagentWorkItems(
   if (!hasRunning) return visible;
 
   return visible.filter((child) => {
-    if (child.status === "running" || child.status === "error") return true;
+    if (child.status === "running") return true;
     if (!child.messageID) return false;
     return activeMessageIDs.has(child.messageID);
   });
@@ -378,13 +212,11 @@ export function renderStatusLine(state: StatuslineState): string {
   const children = visibleSubagentWorkItems(Object.values(state.children)).sort(
     byPriority,
   );
-  const running = children.filter((c) => c.status === "running").length;
-  const done = children.filter((c) => c.status === "done").length;
-  const error = children.filter((c) => c.status === "error").length;
+  const counts = countRetainedSubagentStatuses({ children: state.children });
   const totalExecuted = formatNumber(state.totalExecuted ?? 0);
   const colorOn = colorsEnabled();
 
-  const aggregate = `↳ ${running} running · ${done} done · ${error} error · Σ ${totalExecuted} total`;
+  const aggregate = `↳ ${counts.running} running · ${counts.done} done · ${counts.error} error · Σ ${totalExecuted} total`;
   if (children.length === 0) return aggregate;
 
   const details = children

@@ -32,6 +32,10 @@ Local development:
 
 ## Environment variables
 
+These variables are advanced diagnostic controls. They are not stable public API
+for 1.x, except where the README describes user-facing privacy and persistence
+behavior.
+
 | Variable | Use | When to touch it |
 | --- | --- | --- |
 | `OPENCODE_SUBAGENT_STATUSLINE_STATE` | Overrides the `state.json` path. | Tests, debugging, or custom runtime. |
@@ -46,6 +50,9 @@ Local development:
 | `XDG_DATA_HOME` | Base for OpenCode data lookup. | Non-standard data paths. |
 
 ## State paths
+
+The file locations are documented for diagnostics. The exact `state.json` schema
+and `status.txt` format are experimental and may change in 1.x.
 
 Default runtime state path:
 
@@ -173,13 +180,17 @@ This sets 1 hour. Avoid aggressive values except for diagnostics.
 
 ## Runtime plugin
 
+Runtime mode is experimental/diagnostic in 1.x. Use the TUI plugin for normal
+OpenCode usage.
+
 Runtime entrypoint:
 
 ```txt
 opencode-subagent-statusline/runtime
 ```
 
-It exports `SubagentStatusline` from `src/index.ts`.
+It exports `SubagentStatusline` from the runtime bundle. Source module paths and
+source-level exports are internal.
 
 This mode:
 

@@ -4,10 +4,12 @@ import {
   capCandidates,
   defaultStaleRunningThresholdMs,
   deriveOpenCodeSessionStatus,
+  hasStructuredErrorEvidence,
   hasRecentMessageActivity,
   nextBackoffState,
   parseStaleRunningThresholdMs,
   resolvePersistedStaleSubtaskFromParentMessages,
+  resolveSessionStatusWithMessageSummary,
   shouldApplyStaleRunningFallback,
   shouldSkipCandidateForBackoff,
   summarizeSessionMessages,
@@ -45,6 +47,27 @@ describe("OpenCode session status normalization", () => {
     );
     expect(deriveOpenCodeSessionStatus({ status: "mystery" })).toBeUndefined();
     expect(deriveOpenCodeSessionStatus(undefined)).toBeUndefined();
+  });
+
+  it("lets structured error evidence override idle hydration status", () => {
+    expect(
+      deriveOpenCodeSessionStatus({
+        status: "idle",
+        info: { error: { detail: "Unsupported content type" } },
+      }),
+    ).toBe("error");
+  });
+
+  it("keeps running statuses unless the current status object has structured error evidence", () => {
+    expect(deriveOpenCodeSessionStatus({ status: "running" })).toBe("running");
+    expect(deriveOpenCodeSessionStatus({ status: "retry" })).toBe("running");
+
+    expect(
+      deriveOpenCodeSessionStatus({
+        status: "running",
+        info: { error: { message: "Bad Request" } },
+      }),
+    ).toBe("error");
   });
 });
 
@@ -115,6 +138,58 @@ describe("terminal positive evidence", () => {
     ]);
     expect(errorSummary.hasError).toBe(true);
     expect(errorSummary.evidenceAt).toBe(errorAt);
+  });
+
+  it("lets assistant error evidence override idle or done session status", () => {
+    const errorAt = new Date().toISOString();
+    const summary = summarizeSessionMessages([
+      {
+        info: {
+          role: "assistant",
+          error: { message: "Bad Request", detail: "Unsupported content type" },
+          time: { updated: errorAt },
+        },
+      },
+    ]);
+
+    expect(
+      resolveSessionStatusWithMessageSummary({
+        status: "done",
+        summary,
+      }),
+    ).toEqual({ status: "error", endedAt: errorAt });
+  });
+
+  it("preserves running status over older message summary evidence", () => {
+    expect(
+      resolveSessionStatusWithMessageSummary({
+        status: "running",
+        summary: { completedAt: "2026-05-10T10:00:00.000Z" },
+      }),
+    ).toEqual({ status: "running" });
+
+    expect(
+      resolveSessionStatusWithMessageSummary({
+        status: "running",
+        summary: {
+          hasError: true,
+          evidenceAt: "2026-05-10T10:01:00.000Z",
+        },
+      }),
+    ).toEqual({ status: "running" });
+  });
+
+  it("detects structured nested error evidence without matching plain text", () => {
+    expect(
+      hasStructuredErrorEvidence({
+        properties: { info: { error: { detail: "Unsupported content type" } } },
+      }),
+    ).toBe(true);
+    expect(
+      hasStructuredErrorEvidence({
+        message: "Bad Request: Unsupported content type",
+      }),
+    ).toBe(false);
   });
 });
 

@@ -66,6 +66,27 @@ The TUI plugin adds a sidebar section that shows:
 
 It also adds a small home/footer summary when there is active subagent activity.
 
+## 1.0 public contract
+
+For 1.x releases, the stable user-facing contract is:
+
+- npm package name: `opencode-subagent-statusline`;
+- TUI plugin entrypoints: `opencode-subagent-statusline` and `opencode-subagent-statusline/tui`;
+- OpenCode `tui.json` plugin configuration;
+- visible sidebar and home/footer behavior;
+- command palette entry, `Alt+B`, and focused-list navigation;
+- local privacy and persistence behavior described in this README;
+- Node, peer dependency, and install contract declared in `package.json`.
+
+Experimental or internal surfaces may change in 1.x without a SemVer-major bump:
+
+- `opencode-subagent-statusline/runtime`, intended for diagnostics and file-based runtime experiments;
+- diagnostic environment variables;
+- exact `state.json` schema and `status.txt` format;
+- internal source modules and source-level exports.
+
+Use the TUI plugin entrypoints for normal OpenCode usage.
+
 ## Keyboard navigation
 
 Run `Subagents: Focus sidebar list` from the OpenCode command palette, or press
@@ -144,6 +165,7 @@ Package entrypoints:
 ```txt
 opencode-subagent-statusline          -> TUI plugin
 opencode-subagent-statusline/tui      -> TUI plugin
+opencode-subagent-statusline/runtime  -> experimental/diagnostic runtime mode
 ```
 
 Useful commands:

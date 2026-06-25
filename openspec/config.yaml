@@ -20,6 +20,7 @@ testing:
   runner: pnpm test
   typecheck: pnpm typecheck
   build: pnpm build
+  coverage: pnpm test:coverage
   framework: Vitest
   config: vitest.config.ts
   setup_files:
@@ -27,6 +28,13 @@ testing:
   include:
     - src/**/*.test.ts
     - test/**/*.integration.test.ts
+  layers:
+    unit: src/**/*.test.ts
+    integration: test/**/*.integration.test.ts
+    e2e: unavailable
+  quality:
+    linter: unavailable
+    formatter: unavailable
   strategy_docs:
     - docs/testing.md
   guidance:
