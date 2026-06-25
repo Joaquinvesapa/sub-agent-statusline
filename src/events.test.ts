@@ -224,6 +224,108 @@ describe("events", () => {
     });
   });
 
+  it("maps terminal session.updated status to done", () => {
+    const state = createEmptyState();
+
+    const changed = applySubagentEvent(state, {
+      type: "session.updated",
+      properties: {
+        info: {
+          id: "ses_child_updated",
+          parentID: "ses_parent",
+          title: "Child updated",
+          status: "idle",
+          time: { updated: "2026-05-10T10:25:00.000Z" },
+        },
+      },
+    });
+
+    expect(changed).toBe(true);
+    expect(state.children.ses_child_updated).toMatchObject({
+      status: "done",
+      endedAt: "2026-05-10T10:25:00.000Z",
+      elapsedMs: 0,
+    });
+  });
+
+  it("maps session.updated explicit error status to error", () => {
+    const state = createEmptyState();
+
+    const changed = applySubagentEvent(state, {
+      type: "session.updated",
+      properties: {
+        info: {
+          id: "ses_child_updated_error",
+          parentID: "ses_parent",
+          title: "Child updated error",
+          status: "failed",
+          time: { updated: "2026-05-10T10:30:00.000Z" },
+        },
+      },
+    });
+
+    expect(changed).toBe(true);
+    expect(state.children.ses_child_updated_error).toMatchObject({
+      status: "error",
+      endedAt: "2026-05-10T10:30:00.000Z",
+    });
+  });
+
+  it("maps session.updated nested error evidence to error", () => {
+    const state = createEmptyState();
+
+    const changed = applySubagentEvent(state, {
+      type: "session.updated",
+      properties: {
+        info: {
+          id: "ses_child_updated_nested_error",
+          parentID: "ses_parent",
+          title: "Child updated nested error",
+          diagnostics: {
+            error: {
+              message: "Bad Request",
+              detail: "Unsupported content type",
+            },
+          },
+          time: { updated: "2026-05-10T10:35:00.000Z" },
+        },
+      },
+    });
+
+    expect(changed).toBe(true);
+    expect(state.children.ses_child_updated_nested_error).toMatchObject({
+      status: "error",
+      endedAt: "2026-05-10T10:35:00.000Z",
+    });
+  });
+
+  it("maps session.updated idle status with structured error evidence to error", () => {
+    const state = createEmptyState();
+
+    const changed = applySubagentEvent(state, {
+      type: "session.updated",
+      properties: {
+        info: {
+          id: "ses_child_updated_idle_error",
+          parentID: "ses_parent",
+          title: "Child updated idle error",
+          status: "idle",
+          error: {
+            message: "Bad Request",
+            detail: "Unsupported content type",
+          },
+          time: { updated: "2026-05-10T10:40:00.000Z" },
+        },
+      },
+    });
+
+    expect(changed).toBe(true);
+    expect(state.children.ses_child_updated_idle_error).toMatchObject({
+      status: "error",
+      endedAt: "2026-05-10T10:40:00.000Z",
+    });
+  });
+
   it("maps session.status idle with structured error evidence to error", () => {
     const state = createEmptyState();
     applySubagentEvent(state, {

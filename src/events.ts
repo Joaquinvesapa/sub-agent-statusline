@@ -801,6 +801,32 @@ export function applySubagentEvent(
           parentID: child.parentID,
           updatedAt: child.updatedAt,
         }) || changed;
+      const sessionStatusFromUpdate =
+        type === "session.updated"
+          ? hasStructuredErrorEvidence(e.properties ?? e)
+            ? "error"
+            : deriveOpenCodeSessionStatus(
+                e.properties?.status ??
+                  e.properties?.state ??
+                  e.properties?.info?.status ??
+                  e.status ??
+                  e.state,
+              )
+          : undefined;
+      if (
+        sessionStatusFromUpdate === "done" ||
+        sessionStatusFromUpdate === "error"
+      ) {
+        const endedAt = extractEventTimestamp(e, [
+          "completed",
+          "end",
+          "ended",
+          "updated",
+        ]);
+        changed =
+          markChildStatus(state, child.id, sessionStatusFromUpdate, endedAt) ||
+          changed;
+      }
       return changed;
     }
     return false;
