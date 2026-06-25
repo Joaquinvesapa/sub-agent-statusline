@@ -28,6 +28,11 @@ Puede incluir:
 - indicador de sesión navegable;
 - agrupación por sesión actual u otras sesiones.
 
+Los títulos y summaries largos se compactan usando ancho de columnas de terminal,
+no longitud de string de JavaScript. Esto mantiene texto CJK/full-width, como
+summaries en japonés, dentro del ancho disponible de la sidebar al envolver o
+truncar filas.
+
 Ejemplo conceptual:
 
 ```txt

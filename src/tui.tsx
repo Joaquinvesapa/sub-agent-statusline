@@ -76,6 +76,7 @@ import {
   type StatusCounts,
   type StatuslineState,
 } from "./state.js";
+import { takeColumns, textColumns, truncateToColumns } from "./text-width.js";
 import { registerSubagentCommands } from "./tui-commands.js";
 import { t } from "./i18n.js";
 
@@ -825,11 +826,8 @@ function resolveSidebarWidth(ctx: unknown): number | undefined {
   );
 }
 
-function ellipsize(value: string, maxChars: number): string {
-  if (maxChars <= 0) return "";
-  if (value.length <= maxChars) return value;
-  if (maxChars <= 1) return "…";
-  return `${value.slice(0, Math.max(0, maxChars - 1))}…`;
+function ellipsize(value: string, maxColumns: number): string {
+  return truncateToColumns(value, maxColumns);
 }
 
 function splitParentheticalTitle(title: string): {
@@ -863,7 +861,7 @@ function formatSecondaryLine(
   if (!continuation) return parenthetical;
   if (!parenthetical) return continuation;
 
-  const parentheticalWidth = Math.min(parenthetical.length, width);
+  const parentheticalWidth = Math.min(textColumns(parenthetical), width);
   const continuationWidth = width - parentheticalWidth - 1;
   if (continuationWidth >= MIN_LABEL_WIDTH) {
     return `${ellipsize(continuation, continuationWidth)} ${ellipsize(parenthetical, parentheticalWidth)}`;
@@ -924,7 +922,7 @@ function rowWidthBudget(sidebarWidth: number | undefined): number {
   return Math.max(MIN_ROW_WIDTH, Math.min(innerWidth, 52));
 }
 
-function wrapCompactText(
+export function wrapCompactText(
   value: string,
   width: number,
   maxLines: number,
@@ -935,10 +933,19 @@ function wrapCompactText(
   const lines: string[] = [];
   let remaining = normalized;
 
-  while (remaining.length > width && lines.length < maxLines - 1) {
-    const slice = remaining.slice(0, width + 1);
-    const breakAt = slice.lastIndexOf(" ");
-    const take = breakAt >= MIN_LABEL_WIDTH ? breakAt : width;
+  while (textColumns(remaining) > width && lines.length < maxLines - 1) {
+    const probe = takeColumns(remaining, width + 1);
+    const breakAt = probe.lastIndexOf(" ");
+    const breakPrefix = breakAt >= 0 ? probe.slice(0, breakAt) : "";
+    const fit = takeColumns(remaining, width);
+    const take =
+      breakAt >= 0 &&
+      textColumns(breakPrefix) >= MIN_LABEL_WIDTH &&
+      textColumns(breakPrefix) <= width
+        ? breakAt
+        : fit.length;
+    if (take <= 0) break;
+
     lines.push(remaining.slice(0, take).trimEnd());
     remaining = remaining.slice(take).trimStart();
   }
@@ -971,12 +978,13 @@ function formatChildRowLine(input: {
   const parenthetical = childParenthetical(input.child);
 
   for (const meta of contextVariants(input.child)) {
-    const detailChars = 2 + elapsed.length + (meta ? 3 + meta.length : 0);
+    const detailChars =
+      2 + textColumns(elapsed) + (meta ? 3 + textColumns(meta) : 0);
     const labelBudget = Math.min(
       width - 2,
       width - Math.max(0, detailChars - width),
     );
-    if (labelBudget >= MIN_LABEL_WIDTH || meta.length === 0) {
+    if (labelBudget >= MIN_LABEL_WIDTH || textColumns(meta) === 0) {
       const labelLines = wrapCompactText(
         title.label,
         Math.max(1, labelBudget),

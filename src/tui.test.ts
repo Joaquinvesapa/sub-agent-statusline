@@ -13,7 +13,9 @@ import {
   probeRunningEvidence,
   resolveTuiSubagentSnapshot,
   subagentRowHeight,
+  wrapCompactText,
 } from "./tui.js";
+import { textColumns } from "./text-width.js";
 import {
   focusPromptWithDeferredRetry,
   resolveSidebarReturnFocusAction,
@@ -84,6 +86,20 @@ async function hydrateState(input: {
 }
 
 describe("TUI subagent snapshots", () => {
+  it("wraps unbroken Japanese text within odd terminal column budgets", () => {
+    const lines = wrapCompactText("日本語の概要を表示しています追加確認", 25, 2);
+
+    expect(lines).toHaveLength(2);
+    expect(lines.every((line) => textColumns(line) <= 25)).toBe(true);
+  });
+
+  it("truncates unbroken Japanese text within narrow terminal column budgets", () => {
+    const lines = wrapCompactText("日本語の概要を表示しています", 8, 2);
+
+    expect(lines).toHaveLength(2);
+    expect(lines.every((line) => textColumns(line) <= 8)).toBe(true);
+  });
+
   it("matches running row height to rendered secondary-line presence", () => {
     const nowMs = Date.parse("2026-04-30T10:20:00.000Z");
 
