@@ -4,9 +4,7 @@ The plugin's internal state lives in `src/state.ts`. Its job is to store subagen
 
 Main idea:
 
-> `children` stores what the plugin knows. `totalExecuted` counts real work across sessions. The UI may show fewer rows than the state stores.
-
-The TUI sidebar does not consume `state.totalExecuted` directly. It derives a session-local total from `children` and `countedChildIDs`, while the home summary and text statusline continue to use the global `totalExecuted`.
+> `children` stores what the plugin knows. `totalExecuted` counts real work. The UI may show fewer rows than the state stores.
 
 ## Central state
 
@@ -27,7 +25,7 @@ type StatuslineState = {
 | --- | --- |
 | `children` | Map of known work items: real sessions, subtasks, and wrappers. |
 | `countedChildIDs` | Identities that already counted as execution. |
-| `totalExecuted` | Semantic total of real executions across sessions. |
+| `totalExecuted` | Semantic total of real executions. |
 | `updatedAt` | Last derived state update. |
 
 ## ChildSessionState
@@ -200,7 +198,7 @@ This happens when:
 - a correlated real session appears;
 - loaded state is normalized.
 
-The goal is to keep `totalExecuted` correct and avoid duplicates. The sidebar derives its session-local `Σ total` separately from the global counter.
+The goal is to keep `totalExecuted` correct and avoid duplicates.
 
 ## Persistence
 

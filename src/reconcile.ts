@@ -14,6 +14,17 @@ export type RunningReconcileEvidence = {
 
 export type OpenCodeSessionChildStatus = "running" | "done" | "error";
 
+export type SessionMessageSummary = {
+  completedAt?: string;
+  evidenceAt?: string;
+  hasError?: boolean;
+  fetchFailed?: boolean;
+  latestAssistantActivityAt?: string;
+  latestAssistantActivityAtMs?: number;
+  latestMessageActivityAt?: string;
+  latestMessageActivityAtMs?: number;
+};
+
 const DEFAULT_STALE_RUNNING_THRESHOLD_MS = 10 * 60 * 60_000;
 
 const RUNNING_SESSION_STATUS_VALUES = new Set([
@@ -65,6 +76,10 @@ export function parseStaleRunningThresholdMs(value: unknown): number {
 export function deriveOpenCodeSessionStatus(
   value: unknown,
 ): OpenCodeSessionChildStatus | undefined {
+  if (hasStructuredErrorEvidence(value)) {
+    return "error";
+  }
+
   const values = collectOpenCodeSessionStatusValues(value);
 
   if (values.some((status) => ERROR_SESSION_STATUS_VALUES.has(status))) {
@@ -80,6 +95,63 @@ export function deriveOpenCodeSessionStatus(
   }
 
   return undefined;
+}
+
+export function hasStructuredErrorEvidence(value: unknown, depth = 0): boolean {
+  if (depth > 4) return false;
+  const record = asRecord(value);
+  if (!record) return false;
+
+  if (record.error) return true;
+
+  for (const nested of Object.values(record)) {
+    if (Array.isArray(nested)) {
+      if (nested.some((item) => hasStructuredErrorEvidence(item, depth + 1))) {
+        return true;
+      }
+      continue;
+    }
+
+    if (hasStructuredErrorEvidence(nested, depth + 1)) return true;
+  }
+
+  return false;
+}
+
+export function resolveSessionStatusWithMessageSummary(input: {
+  status?: OpenCodeSessionChildStatus;
+  summary?: SessionMessageSummary;
+}): { status?: OpenCodeSessionChildStatus; endedAt?: string } {
+  const summary = input.summary;
+
+  if (input.status === "error") {
+    return { status: "error", endedAt: summary?.evidenceAt };
+  }
+
+  if (input.status === "running") {
+    return { status: "running" };
+  }
+
+  if (summary && !summary.fetchFailed && summary.hasError) {
+    return { status: "error", endedAt: summary.evidenceAt };
+  }
+
+  if (input.status === "done") {
+    return {
+      status: "done",
+      endedAt: summary?.completedAt ?? summary?.evidenceAt,
+    };
+  }
+
+  if (
+    summary &&
+    !summary.fetchFailed &&
+    typeof summary.completedAt === "string"
+  ) {
+    return { status: "done", endedAt: summary.completedAt };
+  }
+
+  return {};
 }
 
 export type PersistedStaleSubtaskCandidate = {

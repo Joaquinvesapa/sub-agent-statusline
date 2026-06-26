@@ -17,7 +17,7 @@ Users mainly interact with `sidebar_content` and `home_bottom`.
 
 ## Subagent sidebar
 
-The sidebar shows a compact list of subagent-related work items for the current OpenCode session.
+The sidebar shows a compact list of subagent-related work items.
 
 It can include:
 
@@ -26,7 +26,11 @@ It can include:
 - duration;
 - tokens/context when available;
 - navigable session indicator;
-- current-session scope.
+- current-session grouping.
+
+Long labels and summaries are compacted using terminal column width rather than
+JavaScript string length. This keeps wide CJK/full-width text, such as Japanese
+summaries, within the sidebar budget when wrapping or truncating rows.
 
 Conceptual example:
 
@@ -38,11 +42,11 @@ Subagentes
 ✕ Typecheck                  00:08
 ```
 
-## Current-session scope
+## Current session scope
 
-The sidebar only shows subagents whose parent is the current OpenCode session.
+The sidebar shows subagents related to the current OpenCode session.
 
-It does not fall back to activity from other sessions. This keeps session navigation focused: when you move to another session, the sidebar list and aggregate row reflect that session only.
+It does not fall back to other sessions. The home summary, text statusline, and `status.txt` remain global across sessions.
 
 ## Visual statuses
 
@@ -62,7 +66,7 @@ When relevant activity exists, the plugin can show a compact home summary:
 ↳ 1 running · 1 done · 0 error · Σ 2 total
 ```
 
-This gives a quick global signal across known sessions without opening the sidebar.
+This gives a quick signal without opening the sidebar.
 
 ## List focus
 
@@ -131,11 +135,9 @@ keeping list focus.
 The section can be expanded/collapsed and enabled/disabled.
 
 Clicking `Σ`, pressing `c` while the list is focused, or running
-`Subagents: Toggle completed history` toggles completed history for the current
-session. This shows retained stale `done` rows from that session after the normal
-collapse/dedupe step. The sidebar `Σ` is session-local, while the home summary
-`Σ` remains global across sessions. The toggle is transient and is not stored in
-`api.kv`.
+`Subagents: Toggle completed history` toggles completed history. This shows
+retained stale `done` rows and retained `done` rows that are unrelated to active
+work. The toggle is transient and is not stored in `api.kv`.
 
 Preferences are stored through OpenCode `api.kv`:
 
@@ -204,7 +206,7 @@ apply normal pipeline
 update sidebar
 ```
 
-This lets the sidebar show current-session activity that happened before the plugin saw live events in that session.
+This lets the sidebar show activity that happened before the plugin saw live events in the current session.
 
 ## Periodic maintenance
 

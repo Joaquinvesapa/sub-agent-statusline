@@ -1,5 +1,8 @@
 import type { ChildTokenState, StatuslineState } from "./state.js";
-import { deriveOpenCodeSessionStatus } from "./reconcile.js";
+import {
+  deriveOpenCodeSessionStatus,
+  hasStructuredErrorEvidence,
+} from "./reconcile.js";
 import {
   markChildStatus,
   upsertChildDetails,
@@ -56,6 +59,7 @@ type SubtaskChild = {
 };
 
 type ToolChild = SubtaskChild & {
+  toolName: "delegate" | "task";
   status: "running" | "done" | "error";
   endedAt?: string;
 };
@@ -584,6 +588,7 @@ function extractToolChild(event: EventLike): ToolChild | null {
     agentName: subagentType,
     parentID,
     messageID,
+    toolName: tool,
     targetSessionID,
     status,
     startedAt,
@@ -796,6 +801,32 @@ export function applySubagentEvent(
           parentID: child.parentID,
           updatedAt: child.updatedAt,
         }) || changed;
+      const sessionStatusFromUpdate =
+        type === "session.updated"
+          ? hasStructuredErrorEvidence(e.properties ?? e)
+            ? "error"
+            : deriveOpenCodeSessionStatus(
+                e.properties?.status ??
+                  e.properties?.state ??
+                  e.properties?.info?.status ??
+                  e.status ??
+                  e.state,
+              )
+          : undefined;
+      if (
+        sessionStatusFromUpdate === "done" ||
+        sessionStatusFromUpdate === "error"
+      ) {
+        const endedAt = extractEventTimestamp(e, [
+          "completed",
+          "end",
+          "ended",
+          "updated",
+        ]);
+        changed =
+          markChildStatus(state, child.id, sessionStatusFromUpdate, endedAt) ||
+          changed;
+      }
       return changed;
     }
     return false;
@@ -811,7 +842,12 @@ export function applySubagentEvent(
       "updated",
     ]);
     const details = extractChildDetails(e);
-    let changed = markChildStatus(state, childID, "done", endedAt);
+    const status =
+      deriveOpenCodeSessionStatus(e.properties ?? e) === "error" ||
+      hasStructuredErrorEvidence(e.properties ?? e)
+        ? "error"
+        : "done";
+    let changed = markChildStatus(state, childID, status, endedAt);
     changed = upsertChildDetails(state, childID, details) || changed;
     return changed;
   }
@@ -834,14 +870,16 @@ export function applySubagentEvent(
   if (type === "session.status") {
     const childID = extractSessionID(e);
     if (!childID) return false;
-    const status = deriveOpenCodeSessionStatus(
-      e.properties?.status ??
-        e.properties?.state ??
-        e.properties?.info?.status ??
-        e.status ??
-        e.state ??
-        e.properties,
-    );
+    const status = hasStructuredErrorEvidence(e.properties ?? e)
+      ? "error"
+      : deriveOpenCodeSessionStatus(
+          e.properties?.status ??
+            e.properties?.state ??
+            e.properties?.info?.status ??
+            e.status ??
+            e.state ??
+            e.properties,
+        );
     if (!status) return false;
 
     const endedAt =

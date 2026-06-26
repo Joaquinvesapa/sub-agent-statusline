@@ -64,6 +64,111 @@ describe("events", () => {
     expect(state.countedChildIDs.ses_child_1).toBe(true);
   });
 
+  it("keeps real Delegation-titled sessions as session-sourced executions", () => {
+    const state = createEmptyState();
+
+    expect(
+      applySubagentEvent(state, {
+        type: "session.created",
+        properties: {
+          info: {
+            id: "ses_real_delegation",
+            parentID: "ses_parent",
+            title: "Delegation: investigate flaky tests",
+          },
+        },
+      }),
+    ).toBe(true);
+
+    expect(state.children.ses_real_delegation).toMatchObject({
+      id: "ses_real_delegation",
+      title: "Delegation: investigate flaky tests",
+      source: "session",
+      targetSessionID: "ses_real_delegation",
+      status: "running",
+    });
+    expect(state.totalExecuted).toBe(1);
+    expect(state.countedChildIDs.ses_real_delegation).toBe(true);
+  });
+
+  it("preserves delegate tool semantic fields without inventing execution evidence", () => {
+    const state = createEmptyState();
+
+    expect(
+      applySubagentEvent(state, {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "ses_parent",
+          part: {
+            type: "tool",
+            tool: "delegate",
+            id: "delegate_1",
+            sessionID: "ses_parent",
+            messageID: "msg_delegate_1",
+            state: {
+              status: "running",
+              input: {
+                description: "Inspect counters",
+                subagent_type: "reviewer",
+              },
+            },
+          },
+        },
+      }),
+    ).toBe(true);
+
+    expect(state.children["tool:delegate_1"]).toMatchObject({
+      id: "tool:delegate_1",
+      title: "Inspect counters",
+      parentID: "ses_parent",
+      messageID: "msg_delegate_1",
+      source: "tool",
+      toolName: "delegate",
+      targetSessionID: undefined,
+    });
+    expect(state.totalExecuted).toBe(0);
+    expect(state.countedChildIDs["tool:delegate_1"]).toBeUndefined();
+  });
+
+  it("preserves task tool target semantics without counting the wrapper", () => {
+    const state = createEmptyState();
+
+    expect(
+      applySubagentEvent(state, {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "ses_parent",
+          part: {
+            type: "tool",
+            tool: "task",
+            id: "task_1",
+            sessionID: "ses_parent",
+            messageID: "msg_task_1",
+            state: {
+              status: "completed",
+              input: { description: "Run sync task" },
+              metadata: { sessionId: "ses_task_child" },
+              time: { end: "2026-04-30T12:00:00.000Z" },
+            },
+          },
+        },
+      }),
+    ).toBe(true);
+
+    expect(state.children["tool:task_1"]).toMatchObject({
+      id: "tool:task_1",
+      title: "Run sync task",
+      parentID: "ses_parent",
+      messageID: "msg_task_1",
+      source: "tool",
+      toolName: "task",
+      targetSessionID: "ses_task_child",
+      status: "done",
+    });
+    expect(state.totalExecuted).toBe(0);
+    expect(state.countedChildIDs["tool:task_1"]).toBeUndefined();
+  });
+
   it("extracts useful tool details while replacing technical delegation titles", async () => {
     const event = await readJsonFixture<EventLike>("tool-updated");
 
@@ -115,6 +220,179 @@ describe("events", () => {
     expect(changed).toBe(true);
     expect(state.children.ses_child_status).toMatchObject({
       status: "done",
+      endedAt: "2026-05-10T10:15:00.000Z",
+    });
+  });
+
+  it("maps terminal session.updated status to done", () => {
+    const state = createEmptyState();
+
+    const changed = applySubagentEvent(state, {
+      type: "session.updated",
+      properties: {
+        info: {
+          id: "ses_child_updated",
+          parentID: "ses_parent",
+          title: "Child updated",
+          status: "idle",
+          time: { updated: "2026-05-10T10:25:00.000Z" },
+        },
+      },
+    });
+
+    expect(changed).toBe(true);
+    expect(state.children.ses_child_updated).toMatchObject({
+      status: "done",
+      endedAt: "2026-05-10T10:25:00.000Z",
+      elapsedMs: 0,
+    });
+  });
+
+  it("maps session.updated explicit error status to error", () => {
+    const state = createEmptyState();
+
+    const changed = applySubagentEvent(state, {
+      type: "session.updated",
+      properties: {
+        info: {
+          id: "ses_child_updated_error",
+          parentID: "ses_parent",
+          title: "Child updated error",
+          status: "failed",
+          time: { updated: "2026-05-10T10:30:00.000Z" },
+        },
+      },
+    });
+
+    expect(changed).toBe(true);
+    expect(state.children.ses_child_updated_error).toMatchObject({
+      status: "error",
+      endedAt: "2026-05-10T10:30:00.000Z",
+    });
+  });
+
+  it("maps session.updated nested error evidence to error", () => {
+    const state = createEmptyState();
+
+    const changed = applySubagentEvent(state, {
+      type: "session.updated",
+      properties: {
+        info: {
+          id: "ses_child_updated_nested_error",
+          parentID: "ses_parent",
+          title: "Child updated nested error",
+          diagnostics: {
+            error: {
+              message: "Bad Request",
+              detail: "Unsupported content type",
+            },
+          },
+          time: { updated: "2026-05-10T10:35:00.000Z" },
+        },
+      },
+    });
+
+    expect(changed).toBe(true);
+    expect(state.children.ses_child_updated_nested_error).toMatchObject({
+      status: "error",
+      endedAt: "2026-05-10T10:35:00.000Z",
+    });
+  });
+
+  it("maps session.updated idle status with structured error evidence to error", () => {
+    const state = createEmptyState();
+
+    const changed = applySubagentEvent(state, {
+      type: "session.updated",
+      properties: {
+        info: {
+          id: "ses_child_updated_idle_error",
+          parentID: "ses_parent",
+          title: "Child updated idle error",
+          status: "idle",
+          error: {
+            message: "Bad Request",
+            detail: "Unsupported content type",
+          },
+          time: { updated: "2026-05-10T10:40:00.000Z" },
+        },
+      },
+    });
+
+    expect(changed).toBe(true);
+    expect(state.children.ses_child_updated_idle_error).toMatchObject({
+      status: "error",
+      endedAt: "2026-05-10T10:40:00.000Z",
+    });
+  });
+
+  it("maps session.status idle with structured error evidence to error", () => {
+    const state = createEmptyState();
+    applySubagentEvent(state, {
+      type: "session.created",
+      properties: {
+        info: {
+          id: "ses_child_status_idle_error",
+          parentID: "ses_parent",
+          title: "Child status idle error",
+          time: { created: "2026-05-10T10:00:00.000Z" },
+        },
+      },
+    });
+
+    const changed = applySubagentEvent(state, {
+      type: "session.status",
+      properties: {
+        sessionID: "ses_child_status_idle_error",
+        status: "idle",
+        info: {
+          error: {
+            message: "Bad Request",
+            detail: "Unsupported content type",
+          },
+          time: { updated: "2026-05-10T10:15:00.000Z" },
+        },
+      },
+    });
+
+    expect(changed).toBe(true);
+    expect(state.children.ses_child_status_idle_error).toMatchObject({
+      status: "error",
+      endedAt: "2026-05-10T10:15:00.000Z",
+    });
+  });
+
+  it("maps session.idle with structured error evidence to error", () => {
+    const state = createEmptyState();
+    applySubagentEvent(state, {
+      type: "session.created",
+      properties: {
+        info: {
+          id: "ses_child_idle_error",
+          parentID: "ses_parent",
+          title: "Child idle error",
+          time: { created: "2026-05-10T10:00:00.000Z" },
+        },
+      },
+    });
+
+    const changed = applySubagentEvent(state, {
+      type: "session.idle",
+      properties: {
+        sessionID: "ses_child_idle_error",
+        info: {
+          error: {
+            message: "Bad Request",
+            detail: "Unsupported content type",
+          },
+          time: { updated: "2026-05-10T10:15:00.000Z" },
+        },
+      },
+    });
+
+    expect(changed).toBe(true);
+    expect(state.children.ses_child_idle_error).toMatchObject({
+      status: "error",
       endedAt: "2026-05-10T10:15:00.000Z",
     });
   });

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   byPriority,
   collapseSubagentWorkItems,
-  computeSessionLocalTotalExecuted,
   formatContext,
   formatContextCompact,
   formatContextDetails,
@@ -42,7 +41,7 @@ describe("render", () => {
     expect(formatContextCompact(withTokens)).toBe("1.5k ctx 12%");
   });
 
-  it("collapses synthetic work items with matching session children", () => {
+  it("collapses proxy work items into one canonical real session row", () => {
     const synthetic = child({
       id: "tool:part_1",
       title: "Investigate flaky tests",
@@ -62,7 +61,8 @@ describe("render", () => {
 
     expect(collapseSubagentWorkItems([synthetic, session])).toEqual([
       expect.objectContaining({
-        id: "tool:part_1",
+        id: "ses_child",
+        source: "session",
         status: "done",
         color: "green",
         targetSessionID: "ses_child",
@@ -71,7 +71,7 @@ describe("render", () => {
     ]);
   });
 
-  it("does not collapse a targetless generic task wrapper without correlation", () => {
+  it("hides a targetless generic task wrapper while keeping the real session", () => {
     const children: ChildSessionState[] = [
       child({
         id: "tool:sync-task",
@@ -91,12 +91,11 @@ describe("render", () => {
     ];
 
     expect(collapseSubagentWorkItems(children).map((item) => item.id)).toEqual([
-      "tool:sync-task",
       "ses_sync_child",
     ]);
   });
 
-  it("keeps multiple generic wrappers visible when they are the only representation", () => {
+  it("emits canonical session rows for multiple targeted generic proxies", () => {
     const children: ChildSessionState[] = [
       child({
         id: "tool:ping-1",
@@ -137,16 +136,24 @@ describe("render", () => {
     const collapsed = collapseSubagentWorkItems(children);
 
     expect(collapsed.map((item) => item.id)).toEqual([
-      "tool:ping-1",
-      "tool:ping-2",
+      "ses_ping_1",
+      "ses_ping_2",
     ]);
     expect(collapsed).toEqual([
-      expect.objectContaining({ status: "done", targetSessionID: "ses_ping_1" }),
-      expect.objectContaining({ status: "done", targetSessionID: "ses_ping_2" }),
+      expect.objectContaining({
+        source: "session",
+        status: "done",
+        targetSessionID: "ses_ping_1",
+      }),
+      expect.objectContaining({
+        source: "session",
+        status: "done",
+        targetSessionID: "ses_ping_2",
+      }),
     ]);
   });
 
-  it("shows retained generic completed rows when completed history is enabled", () => {
+  it("shows completed real session history without wrapper rows", () => {
     const now = Date.parse("2026-04-30T10:20:00.000Z");
     const children: ChildSessionState[] = [
       child({
@@ -189,7 +196,7 @@ describe("render", () => {
       visibleSubagentWorkItems(children, now, {
         showCompletedHistory: true,
       }).map((item) => item.id),
-    ).toEqual(["tool:old-ping-1", "tool:old-ping-2"]);
+    ).toEqual(["ses_old_ping_1", "ses_old_ping_2"]);
   });
 
   it("keeps one grouped row and avoids duplicate wrappers", () => {
@@ -209,6 +216,7 @@ describe("render", () => {
       }),
       child({
         id: "ses_child_1",
+        targetSessionID: "ses_child_1",
         title: "Implement grouping assertions (coder)",
         source: "session",
         messageID: "msg_1",
@@ -221,8 +229,9 @@ describe("render", () => {
 
     const collapsed = collapseSubagentWorkItems(children);
 
-    expect(collapsed.map((item) => item.id)).toEqual(["subtask:work_1"]);
+    expect(collapsed.map((item) => item.id)).toEqual(["ses_child_1"]);
     expect(collapsed[0]).toMatchObject({
+      source: "session",
       status: "done",
       color: "green",
       targetSessionID: "ses_child_1",
@@ -252,6 +261,134 @@ describe("render", () => {
     ).toEqual(["done_recent"]);
   });
 
+  it("applies done-row recency parity to stale and recent error rows", () => {
+    const now = Date.parse("2026-04-30T10:20:00.000Z");
+    const recentError = child({
+      id: "error_recent",
+      targetSessionID: "error_recent",
+      messageID: "msg_error_recent",
+      status: "error",
+      color: "red",
+      endedAt: "2026-04-30T10:15:00.000Z",
+      updatedAt: "2026-04-30T10:15:00.000Z",
+    });
+    const staleError = child({
+      id: "error_old",
+      targetSessionID: "error_old",
+      messageID: "msg_error_old",
+      status: "error",
+      color: "red",
+      endedAt: undefined,
+      updatedAt: "2026-04-30T10:00:00.000Z",
+    });
+    const staleDone = child({
+      id: "done_old",
+      targetSessionID: "done_old",
+      messageID: "msg_done_old",
+      status: "done",
+      color: "green",
+      endedAt: "2026-04-30T10:00:00.000Z",
+      updatedAt: "2026-04-30T10:00:00.000Z",
+    });
+
+    expect(
+      visibleSubagentWorkItems([recentError, staleError, staleDone], now).map(
+        (item) => item.id,
+      ),
+    ).toEqual(["error_recent"]);
+  });
+
+  it("keeps running work visible without re-admitting stale error rows", () => {
+    const nowMs = Date.parse("2026-04-30T12:15:00.000Z");
+    const children: ChildSessionState[] = [
+      child({
+        id: "ses_active",
+        title: "Long running active work",
+        source: "session",
+        targetSessionID: "ses_active",
+        messageID: "msg_active",
+        status: "running",
+      }),
+      child({
+        id: "ses_error_old",
+        title: "Historical failure",
+        source: "session",
+        targetSessionID: "ses_error_old",
+        messageID: "msg_old",
+        status: "error",
+        color: "red",
+        endedAt: "2026-04-30T12:00:00.000Z",
+        updatedAt: "2026-04-30T12:00:00.000Z",
+      }),
+    ];
+
+    expect(
+      visibleSubagentWorkItems(children, nowMs).map((item) => item.id),
+    ).toEqual(["ses_active"]);
+  });
+
+  it("keeps unrelated recent terminal rows hidden while active work is running", () => {
+    const nowMs = Date.parse("2026-04-30T12:15:00.000Z");
+    const children: ChildSessionState[] = [
+      child({
+        id: "ses_active",
+        title: "Long running active work",
+        source: "session",
+        targetSessionID: "ses_active",
+        messageID: "msg_active",
+        status: "running",
+      }),
+      child({
+        id: "ses_active_done",
+        title: "Active thread completion",
+        source: "session",
+        targetSessionID: "ses_active_done",
+        messageID: "msg_active",
+        status: "done",
+        color: "green",
+        endedAt: "2026-04-30T12:14:00.000Z",
+        updatedAt: "2026-04-30T12:14:00.000Z",
+      }),
+      child({
+        id: "ses_active_error",
+        title: "Active thread failure",
+        source: "session",
+        targetSessionID: "ses_active_error",
+        messageID: "msg_active",
+        status: "error",
+        color: "red",
+        endedAt: "2026-04-30T12:14:30.000Z",
+        updatedAt: "2026-04-30T12:14:30.000Z",
+      }),
+      child({
+        id: "ses_unrelated_error_recent",
+        title: "Recent unrelated failure",
+        source: "session",
+        targetSessionID: "ses_unrelated_error_recent",
+        messageID: "msg_other",
+        status: "error",
+        color: "red",
+        endedAt: "2026-04-30T12:14:45.000Z",
+        updatedAt: "2026-04-30T12:14:45.000Z",
+      }),
+      child({
+        id: "ses_unrelated_done_recent",
+        title: "Recent unrelated completion",
+        source: "session",
+        targetSessionID: "ses_unrelated_done_recent",
+        messageID: "msg_other",
+        status: "done",
+        color: "green",
+        endedAt: "2026-04-30T12:14:45.000Z",
+        updatedAt: "2026-04-30T12:14:45.000Z",
+      }),
+    ];
+
+    expect(
+      visibleSubagentWorkItems(children, nowMs).map((item) => item.id),
+    ).toEqual(["ses_active", "ses_active_done", "ses_active_error"]);
+  });
+
   it("shows stale done items when completed history is enabled", () => {
     const now = Date.parse("2026-04-30T10:20:00.000Z");
     const hiddenDone = child({
@@ -268,20 +405,51 @@ describe("render", () => {
     ).toEqual(["done_old"]);
   });
 
+  it("shows retained stale done and error rows only when completed history is enabled", () => {
+    const now = Date.parse("2026-04-30T10:20:00.000Z");
+    const staleDone = child({
+      id: "done_old_history",
+      targetSessionID: "done_old_history",
+      messageID: "msg_done_old_history",
+      status: "done",
+      color: "green",
+      endedAt: "2026-04-30T10:00:00.000Z",
+      updatedAt: "2026-04-30T10:00:00.000Z",
+    });
+    const staleError = child({
+      id: "error_old_history",
+      targetSessionID: "error_old_history",
+      messageID: "msg_error_old_history",
+      status: "error",
+      color: "red",
+      endedAt: "2026-04-30T10:00:00.000Z",
+      updatedAt: "2026-04-30T10:00:00.000Z",
+    });
+
+    expect(visibleSubagentWorkItems([staleDone, staleError], now)).toEqual([]);
+    expect(
+      visibleSubagentWorkItems([staleDone, staleError], now, {
+        showCompletedHistory: true,
+      }).map((item) => item.id),
+    ).toEqual(["done_old_history", "error_old_history"]);
+  });
+
   it("keeps active running work visible and deprioritizes unrelated done rows", () => {
     const nowMs = Date.parse("2026-04-30T12:15:00.000Z");
     const children: ChildSessionState[] = [
       child({
-        id: "subtask:active",
+        id: "ses_active",
         title: "Long running active work",
-        source: "subtask",
+        source: "session",
+        targetSessionID: "ses_active",
         messageID: "msg_active",
         status: "running",
       }),
       child({
-        id: "subtask:active-done",
+        id: "ses_active_done",
         title: "Recent completion in active thread",
-        source: "subtask",
+        source: "session",
+        targetSessionID: "ses_active_done",
         messageID: "msg_active",
         status: "done",
         color: "green",
@@ -289,9 +457,10 @@ describe("render", () => {
         updatedAt: "2026-04-30T12:14:00.000Z",
       }),
       child({
-        id: "subtask:historical",
+        id: "ses_historical",
         title: "Historical completion",
-        source: "subtask",
+        source: "session",
+        targetSessionID: "ses_historical",
         messageID: "msg_old",
         status: "done",
         color: "green",
@@ -303,10 +472,10 @@ describe("render", () => {
     const visible = visibleSubagentWorkItems(children, nowMs);
 
     expect(visible.map((item) => item.id)).toEqual([
-      "subtask:active",
-      "subtask:active-done",
+      "ses_active",
+      "ses_active_done",
     ]);
-    expect(visible.some((item) => item.id === "subtask:historical")).toBe(
+    expect(visible.some((item) => item.id === "ses_historical")).toBe(
       false,
     );
   });
@@ -315,16 +484,18 @@ describe("render", () => {
     const nowMs = Date.parse("2026-04-30T12:15:00.000Z");
     const children: ChildSessionState[] = [
       child({
-        id: "subtask:active",
+        id: "ses_active",
         title: "Long running active work",
-        source: "subtask",
+        source: "session",
+        targetSessionID: "ses_active",
         messageID: "msg_active",
         status: "running",
       }),
       child({
-        id: "subtask:active-done",
+        id: "ses_active_done",
         title: "Recent completion in active thread",
-        source: "subtask",
+        source: "session",
+        targetSessionID: "ses_active_done",
         messageID: "msg_active",
         status: "done",
         color: "green",
@@ -332,9 +503,10 @@ describe("render", () => {
         updatedAt: "2026-04-30T12:14:00.000Z",
       }),
       child({
-        id: "subtask:historical",
+        id: "ses_historical",
         title: "Historical completion",
-        source: "subtask",
+        source: "session",
+        targetSessionID: "ses_historical",
         messageID: "msg_old",
         status: "done",
         color: "green",
@@ -348,10 +520,26 @@ describe("render", () => {
     });
 
     expect(visible.map((item) => item.id)).toEqual([
-      "subtask:active",
-      "subtask:active-done",
-      "subtask:historical",
+      "ses_active",
+      "ses_active_done",
+      "ses_historical",
     ]);
+  });
+
+  it("hides targetless delegate wrappers before real-session evidence exists", () => {
+    const nowMs = Date.parse("2026-04-30T12:15:00.000Z");
+    const wrapper = child({
+      id: "tool:delegate-wrapper",
+      title: "Delegation: inspect counters",
+      source: "tool",
+      toolName: "delegate",
+      targetSessionID: undefined,
+      messageID: "msg_delegate",
+      status: "running",
+    });
+
+    expect(collapseSubagentWorkItems([wrapper])).toEqual([]);
+    expect(visibleSubagentWorkItems([wrapper], nowMs)).toEqual([]);
   });
 
   it("sorts ties by id for stable priority", () => {
@@ -365,16 +553,19 @@ describe("render", () => {
     const state: StatuslineState = {
       children: {
         running: child({
-          id: "running",
+          id: "ses_running",
+          targetSessionID: "ses_running",
           title: "Run tests",
           status: "running",
           color: "yellow",
         }),
         error: child({
-          id: "error",
+          id: "ses_error",
+          targetSessionID: "ses_error",
           title: "Fix bug",
           status: "error",
           color: "red",
+          updatedAt: new Date().toISOString(),
         }),
       },
       countedChildIDs: { running: true, error: true },
@@ -388,193 +579,60 @@ describe("render", () => {
     expect(renderStatusLine(state)).toContain("Run tests 01:01");
     expect(renderStatusLine(state)).not.toContain("\u001B[");
   });
-});
 
-describe("computeSessionLocalTotalExecuted", () => {
-  function stateWith(
-    children: ChildSessionState[],
-    countedIDs: string[] = [],
-  ): Pick<StatuslineState, "children" | "countedChildIDs"> {
-    return {
-      children: Object.fromEntries(children.map((c) => [c.id, c])),
-      countedChildIDs: Object.fromEntries(countedIDs.map((id) => [id, true])),
-    };
-  }
-
-  it("counts only counted identities for the current session", () => {
-    const children: ChildSessionState[] = [
+  it("renders retained terminal status counts while active rows stay filtered", () => {
+    process.env.NO_COLOR = "1";
+    const terminalDone = Array.from({ length: 6 }, (_, index) =>
       child({
-        id: "tool:current-1",
-        parentID: "ses_current",
-        source: "tool",
-        title: "First done task",
+        id: `ses_done_${index}`,
+        targetSessionID: `ses_done_${index}`,
+        messageID: `msg_done_${index}`,
+        title: `Retained done ${index}`,
         status: "done",
         color: "green",
+        endedAt: "2026-04-30T10:00:00.000Z",
+        updatedAt: "2026-04-30T10:00:00.000Z",
       }),
+    );
+    const terminalErrors = Array.from({ length: 7 }, (_, index) =>
       child({
-        id: "tool:current-2",
-        parentID: "ses_current",
-        source: "tool",
-        title: "Second error task",
+        id: `ses_error_${index}`,
+        targetSessionID: `ses_error_${index}`,
+        messageID: `msg_error_${index}`,
+        title: `Retained error ${index}`,
         status: "error",
         color: "red",
+        endedAt: "2026-04-30T10:00:00.000Z",
+        updatedAt: "2026-04-30T10:00:00.000Z",
       }),
-      child({
-        id: "tool:current-running",
-        parentID: "ses_current",
-        source: "tool",
-        title: "Running task",
-        status: "running",
-        color: "yellow",
-      }),
-    ];
-
-    expect(
-      computeSessionLocalTotalExecuted(
-        stateWith(children, ["tool:current-1", "tool:current-2"]),
-        "ses_current",
+    );
+    const state: StatuslineState = {
+      children: Object.fromEntries(
+        [
+          child({
+            id: "ses_running",
+            targetSessionID: "ses_running",
+            messageID: "msg_running",
+            title: "Active work",
+            status: "running",
+            color: "yellow",
+          }),
+          ...terminalDone,
+          ...terminalErrors,
+        ].map((item) => [item.id, item]),
       ),
-    ).toBe(2);
-  });
+      countedChildIDs: {},
+      totalExecuted: 13,
+      updatedAt: "2026-04-30T10:20:00.000Z",
+    };
 
-  it("excludes children from other sessions", () => {
-    const children: ChildSessionState[] = [
-      child({
-        id: "tool:current",
-        parentID: "ses_current",
-        source: "tool",
-        status: "done",
-        color: "green",
-      }),
-      child({
-        id: "tool:other",
-        parentID: "ses_other",
-        source: "tool",
-        status: "done",
-        color: "green",
-      }),
-    ];
+    const statusLine = renderStatusLine(state);
 
-    expect(
-      computeSessionLocalTotalExecuted(
-        stateWith(children, ["tool:current", "tool:other"]),
-        "ses_current",
-      ),
-    ).toBe(1);
-  });
-
-  it("does not count children whose id is not in countedChildIDs", () => {
-    const children: ChildSessionState[] = [
-      child({
-        id: "tool:running-1",
-        parentID: "ses_current",
-        source: "tool",
-        status: "running",
-        color: "yellow",
-      }),
-      child({
-        id: "tool:running-2",
-        parentID: "ses_current",
-        source: "tool",
-        status: "done",
-        color: "green",
-      }),
-    ];
-
-    expect(
-      computeSessionLocalTotalExecuted(stateWith(children, []), "ses_current"),
-    ).toBe(0);
-  });
-
-  it("deduplicates synthetic/session pairs via collapseSubagentWorkItems", () => {
-    const children: ChildSessionState[] = [
-      child({
-        id: "tool:synthetic",
-        parentID: "ses_current",
-        source: "tool",
-        targetSessionID: "ses_child_session",
-        status: "done",
-        color: "green",
-      }),
-      child({
-        id: "ses_child_session",
-        parentID: "ses_current",
-        source: "session",
-        targetSessionID: "ses_child_session",
-        status: "done",
-        color: "green",
-      }),
-    ];
-
-    expect(
-      computeSessionLocalTotalExecuted(
-        stateWith(children, ["ses_child_session"]),
-        "ses_current",
-      ),
-    ).toBe(1);
-  });
-
-  it("returns 0 for an empty session", () => {
-    const children: ChildSessionState[] = [
-      child({
-        id: "tool:other",
-        parentID: "ses_other",
-        source: "tool",
-        status: "done",
-        color: "green",
-      }),
-    ];
-
-    expect(
-      computeSessionLocalTotalExecuted(
-        stateWith(children, ["tool:other"]),
-        "ses_empty",
-      ),
-    ).toBe(0);
-  });
-
-  it("does not count a terminal tool wrapper with no counted identity", () => {
-    const children: ChildSessionState[] = [
-      child({
-        id: "tool:uncounted-wrapper",
-        parentID: "ses_current",
-        source: "tool",
-        title: "task",
-        status: "done",
-        color: "green",
-      }),
-    ];
-
-    expect(
-      computeSessionLocalTotalExecuted(stateWith(children, []), "ses_current"),
-    ).toBe(0);
-  });
-
-  it("counts a collapsed synthetic row once when targetSessionID is counted", () => {
-    const children: ChildSessionState[] = [
-      child({
-        id: "tool:synth",
-        parentID: "ses_current",
-        source: "tool",
-        targetSessionID: "ses_target",
-        status: "done",
-        color: "green",
-      }),
-      child({
-        id: "ses_target",
-        parentID: "ses_current",
-        source: "session",
-        targetSessionID: "ses_target",
-        status: "done",
-        color: "green",
-      }),
-    ];
-
-    expect(
-      computeSessionLocalTotalExecuted(
-        stateWith(children, ["ses_target"]),
-        "ses_current",
-      ),
-    ).toBe(1);
+    expect(statusLine).toContain(
+      "↳ 1 running · 6 done · 7 error · Σ 13 total",
+    );
+    expect(statusLine).toContain("Active work 01:01");
+    expect(statusLine).not.toContain("Retained done 0");
+    expect(statusLine).not.toContain("Retained error 0");
   });
 });

@@ -90,9 +90,7 @@ OpenCode can emit many different status words. The plugin normalizes them to the
 
 The `Σ total` value is not a count of visible rows.
 
-It represents real subagent executions. In the TUI sidebar, `Σ total` is scoped
-to the current session. In the home summary and text statusline, `Σ total`
-remains global across sessions.
+It represents real subagent executions.
 
 These situations are normal:
 

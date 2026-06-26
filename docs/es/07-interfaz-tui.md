@@ -17,7 +17,7 @@ La parte visible para usuarios está principalmente en `sidebar_content` y `home
 
 ## Sidebar de subagentes
 
-La sidebar muestra una lista compacta de work items relacionados con subagentes de la sesión actual de OpenCode.
+La sidebar muestra una lista compacta de work items relacionados con subagentes.
 
 Puede incluir:
 
@@ -26,7 +26,12 @@ Puede incluir:
 - duración;
 - tokens/contexto si están disponibles;
 - indicador de sesión navegable;
-- alcance limitado a la sesión actual.
+- agrupación por sesión actual.
+
+Los títulos y summaries largos se compactan usando ancho de columnas de terminal,
+no longitud de string de JavaScript. Esto mantiene texto CJK/full-width, como
+summaries en japonés, dentro del ancho disponible de la sidebar al envolver o
+truncar filas.
 
 Ejemplo conceptual:
 
@@ -40,9 +45,9 @@ Subagentes
 
 ## Alcance de la sesión actual
 
-La sidebar solo muestra subagentes cuyo parent coincida con la sesión actual de OpenCode.
+La sidebar muestra subagentes relacionados con la sesión actual de OpenCode.
 
-No hace fallback a actividad de otras sesiones. Esto mantiene la navegación entre sesiones enfocada: cuando cambiás de sesión, la lista y el agregado de la sidebar reflejan solo esa sesión.
+No hace fallback a otras sesiones. El resumen de home, el statusline textual y `status.txt` siguen siendo globales entre sesiones.
 
 ## Estados visuales
 
@@ -64,7 +69,7 @@ Ejemplo:
 ↳ 1 running · 1 done · 0 error · Σ 2 total
 ```
 
-Este resumen global sirve para saber rápidamente si hay subagentes activos entre las sesiones conocidas sin abrir la sidebar.
+Este resumen sirve para saber rápidamente si hay subagentes activos sin abrir la sidebar.
 
 ## Foco de la lista
 
@@ -134,11 +139,9 @@ Esto es intencional: navegar requiere una sesión real de OpenCode.
 La sección puede expandirse o colapsarse.
 
 Hacer click en `Σ`, presionar `c` con la lista enfocada o ejecutar
-`Subagents: Toggle completed history` alterna completed history para la sesión
-actual. Esto muestra filas `done` viejas retenidas de esa sesión después del
-collapse/dedupe normal. El `Σ` de la sidebar es local a la sesión, mientras que
-el `Σ` del resumen de home sigue siendo global entre sesiones. El toggle es
-transitorio y no se guarda en `api.kv`.
+`Subagents: Toggle completed history` alterna completed history. Esto muestra
+filas `done` viejas retenidas y filas `done` retenidas que no están relacionadas
+con el trabajo activo. El toggle es transitorio y no se guarda en `api.kv`.
 
 El plugin guarda preferencias en `api.kv` de OpenCode:
 
@@ -201,7 +204,7 @@ Si no hay datos, no se muestra nada extra. Eso no significa que el subagente no 
 
 Cuando cambiás de sesión, la TUI intenta reconstruir subagentes previos consultando APIs de OpenCode.
 
-Esto hace que la sidebar pueda mostrar actividad de la sesión actual que ocurrió antes de que el plugin recibiera eventos live en esa sesión.
+Esto hace que la sidebar pueda mostrar actividad que ocurrió antes de que el plugin recibiera eventos live en la sesión actual.
 
 El flujo es:
 
