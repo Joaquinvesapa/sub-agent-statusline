@@ -136,6 +136,23 @@ export function countHistoricalSubagentExecutions(input: {
   return correlateSubagentWorkItems(scopedChildren).length;
 }
 
+export function countCountedSubagentExecutions(input: {
+  children: Record<string, ChildSessionState> | ChildSessionState[];
+  countedChildIDs: Record<string, true>;
+  parentSessionID?: string;
+}): number {
+  const children = Array.isArray(input.children)
+    ? input.children
+    : Object.values(input.children);
+  const scopedChildren = input.parentSessionID
+    ? children.filter((child) => child.parentID === input.parentSessionID)
+    : children;
+
+  return correlateSubagentWorkItems(scopedChildren).filter(
+    (execution) => input.countedChildIDs[execution.executionID],
+  ).length;
+}
+
 export function countRetainedSubagentStatuses(input: {
   children: Record<string, ChildSessionState> | ChildSessionState[];
   parentSessionID?: string;

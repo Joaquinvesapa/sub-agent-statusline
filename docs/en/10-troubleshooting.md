@@ -85,7 +85,7 @@ Check:
 - OpenCode logs;
 - whether the sidebar is enabled;
 - whether the section is collapsed;
-- whether activity appears under other sessions;
+- whether the activity belongs to the current session;
 - whether `Alt+B` focuses the list;
 - whether the issue reproduces with a new delegation.
 

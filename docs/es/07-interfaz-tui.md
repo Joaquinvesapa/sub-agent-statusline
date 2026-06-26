@@ -26,7 +26,7 @@ Puede incluir:
 - duración;
 - tokens/contexto si están disponibles;
 - indicador de sesión navegable;
-- agrupación por sesión actual u otras sesiones.
+- agrupación por sesión actual.
 
 Los títulos y summaries largos se compactan usando ancho de columnas de terminal,
 no longitud de string de JavaScript. Esto mantiene texto CJK/full-width, como
@@ -43,16 +43,11 @@ Subagentes
 ✕ Typecheck                  00:08
 ```
 
-## Sesión actual y otras sesiones
+## Alcance de la sesión actual
 
-La sidebar intenta priorizar subagentes relacionados con la sesión actual de OpenCode.
+La sidebar muestra subagentes relacionados con la sesión actual de OpenCode.
 
-Si no hay subagentes de la sesión actual, o si hay actividad relevante fuera de ella, puede mostrar una sección de “otras sesiones”.
-
-Esto ayuda en dos casos:
-
-1. cuando navegás entre sesiones;
-2. cuando el plugin hidrata actividad previa o concurrente.
+No hace fallback a otras sesiones. El resumen de home, el statusline textual y `status.txt` siguen siendo globales entre sesiones.
 
 ## Estados visuales
 

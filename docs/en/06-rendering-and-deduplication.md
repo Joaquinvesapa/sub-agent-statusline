@@ -266,8 +266,8 @@ The TUI sidebar consumes processed rows so it can show delegated work instead of
 
 It also applies UX rules:
 
-- prefer current-session subagents;
-- show other sessions when appropriate;
+- show current-session subagents only;
+- keep home summary and text/status-file rendering global;
 - support focus and navigation;
 - open a session only when `targetSessionID` is navigable;
 - preserve scroll and expanded/collapsed state.

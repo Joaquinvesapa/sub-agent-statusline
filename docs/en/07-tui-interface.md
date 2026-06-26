@@ -26,7 +26,7 @@ It can include:
 - duration;
 - tokens/context when available;
 - navigable session indicator;
-- current-session or other-session grouping.
+- current-session grouping.
 
 Long labels and summaries are compacted using terminal column width rather than
 JavaScript string length. This keeps wide CJK/full-width text, such as Japanese
@@ -42,11 +42,11 @@ Subagentes
 ✕ Typecheck                  00:08
 ```
 
-## Current session and other sessions
+## Current session scope
 
-The sidebar tries to prioritize subagents related to the current OpenCode session.
+The sidebar shows subagents related to the current OpenCode session.
 
-If there are no current-session subagents, or if relevant activity exists elsewhere, it can show activity from other sessions. This helps when navigating between sessions or when hydration reconstructs previous activity.
+It does not fall back to other sessions. The home summary, text statusline, and `status.txt` remain global across sessions.
 
 ## Visual statuses
 

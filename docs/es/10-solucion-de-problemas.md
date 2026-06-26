@@ -85,7 +85,7 @@ Qué revisar:
 - logs de OpenCode;
 - si la sidebar está habilitada;
 - si la sección está colapsada;
-- si hay actividad en “otras sesiones”;
+- si la actividad pertenece a la sesión actual;
 - si `Alt+B` enfoca la lista;
 - si el problema se reproduce con una nueva delegación.
 

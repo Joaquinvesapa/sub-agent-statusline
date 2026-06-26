@@ -62,6 +62,7 @@ import {
 } from "./tui-focus.js";
 import {
   createEmptyState,
+  countCountedSubagentExecutions,
   countHistoricalSubagentExecutions,
   countRetainedSubagentStatuses,
   markChildStatus,
@@ -1071,7 +1072,6 @@ export function resolveTuiSubagentSnapshot(input: {
   sessionID?: string;
   nowMs?: number;
   showCompletedHistory?: boolean;
-  fallbackToOtherSessions?: boolean;
 }): TuiSubagentSnapshot {
   const allChildren = Object.values(input.state.children);
   const options = { showCompletedHistory: input.showCompletedHistory };
@@ -1079,44 +1079,27 @@ export function resolveTuiSubagentSnapshot(input: {
   const ownChildren = input.sessionID
     ? allChildren.filter((child) => child.parentID === input.sessionID)
     : allChildren;
-  const otherChildren = input.sessionID
-    ? allChildren.filter((child) => child.parentID !== input.sessionID)
-    : [];
   const ownVisibleChildren = visibleSubagentWorkItems(
     ownChildren,
     nowMs,
     options,
   ).sort(byPriority);
-  const otherVisibleChildren =
-    input.sessionID && input.fallbackToOtherSessions
-      ? visibleSubagentWorkItems(otherChildren, nowMs, options).sort(byPriority)
-      : [];
-  const ownTotalExecuted = countHistoricalSubagentExecutions({
-    children: allChildren,
-    parentSessionID: input.sessionID,
-  });
-  const showingOtherSessions =
-    ownVisibleChildren.length === 0 &&
-    ownTotalExecuted === 0 &&
-    otherVisibleChildren.length > 0;
-  const visibleChildren = showingOtherSessions
-    ? otherVisibleChildren
-    : ownVisibleChildren;
-  const retainedCountChildren = showingOtherSessions
-    ? otherChildren
-    : allChildren;
-  const totalExecuted = showingOtherSessions
-    ? countHistoricalSubagentExecutions({ children: otherChildren })
-    : ownTotalExecuted;
+  const totalExecuted = input.sessionID
+    ? countCountedSubagentExecutions({
+        children: allChildren,
+        countedChildIDs: input.state.countedChildIDs,
+        parentSessionID: input.sessionID,
+      })
+    : countHistoricalSubagentExecutions({ children: allChildren });
 
   return {
-    visibleChildren,
+    visibleChildren: ownVisibleChildren,
     visibleCounts: countRetainedSubagentStatuses({
-      children: retainedCountChildren,
-      parentSessionID: showingOtherSessions ? undefined : input.sessionID,
+      children: allChildren,
+      parentSessionID: input.sessionID,
     }),
     totalExecuted,
-    showingOtherSessions,
+    showingOtherSessions: false,
   };
 }
 
@@ -1126,10 +1109,7 @@ export function resolveSidebarSubagentSnapshot(input: {
   nowMs?: number;
   showCompletedHistory?: boolean;
 }): TuiSubagentSnapshot {
-  return resolveTuiSubagentSnapshot({
-    ...input,
-    fallbackToOtherSessions: true,
-  });
+  return resolveTuiSubagentSnapshot(input);
 }
 
 function SidebarSubagents(props: {
@@ -1165,7 +1145,6 @@ function SidebarSubagents(props: {
   const visibleChildren = createMemo(() => snapshot().visibleChildren);
   const counts = createMemo(() => snapshot().visibleCounts);
   const totalExecuted = createMemo(() => snapshot().totalExecuted);
-  const showingOtherSessions = createMemo(() => snapshot().showingOtherSessions);
 
   const visibleChildIDs = createMemo(() =>
     visibleChildren().map((child) => child.id),
@@ -1207,7 +1186,7 @@ function SidebarSubagents(props: {
             sidebarWidth,
             reservedWidth: SUBAGENTS_ROW_MARKER_WIDTH,
           }),
-        showingOtherSessions() ? 1 : 0,
+        0,
       ) +
       Math.max(0, visibleChildren().length - 1) * SUBAGENTS_ROW_GAP;
 
@@ -1220,7 +1199,7 @@ function SidebarSubagents(props: {
     getScrollbox: () => scrollbox,
     getAnchor: () => currentSidebarScrollAnchor(),
     getRows: () => rowLayouts(),
-    getLeadingHeight: () => (showingOtherSessions() ? 1 : 0),
+    getLeadingHeight: () => 0,
     offsetTop: 0,
     restoreFramesRemaining: 0,
   };
@@ -1284,7 +1263,7 @@ function SidebarSubagents(props: {
   };
 
   const rowTopForIndex = (index: number): number => {
-    let top = showingOtherSessions() ? 1 : 0;
+    let top = 0;
     const nowMs = props.nowMs();
     const sidebarWidth = props.sidebarWidth?.();
     for (let i = 0; i < index; i += 1) {
@@ -1322,7 +1301,7 @@ function SidebarSubagents(props: {
     if (rows.length === 0) return undefined;
 
     const viewportTop = clampedScrollTop(scrollbox, scrollbox.scrollTop);
-    let top = showingOtherSessions() ? 1 : 0;
+    let top = 0;
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
       if (!row) continue;
@@ -1483,7 +1462,6 @@ function SidebarSubagents(props: {
     props.expanded();
     visibleChildIDs().join("|");
     visibleChildLayoutSignature();
-    showingOtherSessions();
     props.sidebarWidth?.();
 
     restorePreservedScroll();
@@ -1735,9 +1713,6 @@ function SidebarSubagents(props: {
           viewportCulling={false}
         >
           <box flexDirection="column" rowGap={SUBAGENTS_ROW_GAP}>
-            <Show when={showingOtherSessions()}>
-              <text fg={props.theme.textMuted}>Other sessions</text>
-            </Show>
             <For each={visibleChildIDs()}>
               {(childID: string) => <ChildRow childID={childID} />}
             </For>

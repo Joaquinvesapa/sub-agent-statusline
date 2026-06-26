@@ -204,7 +204,7 @@ Los slots de prompt se usan para preservar referencias de foco y compatibilidad 
 
 ### 3. Sidebar
 
-La sidebar muestra subagentes relacionados con la sesión actual cuando puede. Si no hay datos de la sesión actual, puede mostrar actividad de otras sesiones.
+La sidebar muestra solo subagentes relacionados con la sesión actual. El resumen de home y el render textual/status-file siguen siendo globales entre sesiones.
 
 Soporta:
 

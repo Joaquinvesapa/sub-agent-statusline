@@ -38,10 +38,17 @@ function child(overrides: Partial<ChildSessionState> = {}): ChildSessionState {
   };
 }
 
-function stateWith(children: ChildSessionState[]): StatuslineState {
+function stateWith(
+  children: ChildSessionState[],
+  countedChildIDs = children
+    .filter((item) => item.source === "session" || item.id.startsWith("ses_"))
+    .map((item) => item.targetSessionID ?? item.id),
+): StatuslineState {
   return {
     children: Object.fromEntries(children.map((item) => [item.id, item])),
-    countedChildIDs: {},
+    countedChildIDs: Object.fromEntries(
+      countedChildIDs.map((id) => [id, true]),
+    ),
     totalExecuted: 99,
     updatedAt: "2026-04-30T10:20:00.000Z",
   };
@@ -312,7 +319,7 @@ describe("TUI subagent snapshots", () => {
     expect(historySnapshot.totalExecuted).toBe(defaultSnapshot.totalExecuted);
   });
 
-  it("keeps fallback rows and counters in the current session scope when current history is hidden", () => {
+  it("keeps rows and counters in the current session scope when current history is hidden", () => {
     const nowMs = Date.parse("2026-04-30T10:20:00.000Z");
     const state = stateWith([
       child({
@@ -356,14 +363,12 @@ describe("TUI subagent snapshots", () => {
       state,
       sessionID: "ses_current",
       nowMs,
-      fallbackToOtherSessions: true,
     });
     const historySnapshot = resolveTuiSubagentSnapshot({
       state,
       sessionID: "ses_current",
       nowMs,
       showCompletedHistory: true,
-      fallbackToOtherSessions: true,
     });
 
     expect(defaultSnapshot.showingOtherSessions).toBe(false);
@@ -385,7 +390,7 @@ describe("TUI subagent snapshots", () => {
     expect(historySnapshot.totalExecuted).toBe(defaultSnapshot.totalExecuted);
   });
 
-  it("falls back to other session rows with matching counters when current session has no retained executions", () => {
+  it("does not fall back to other-session rows when current session has no retained executions", () => {
     const nowMs = Date.parse("2026-04-30T10:20:00.000Z");
     const state = stateWith([
       child({
@@ -429,22 +434,19 @@ describe("TUI subagent snapshots", () => {
       state,
       sessionID: "ses_current",
       nowMs,
-      fallbackToOtherSessions: true,
     });
 
-    expect(defaultSnapshot.showingOtherSessions).toBe(true);
-    expect(defaultSnapshot.visibleChildren.map((item) => item.id)).toEqual([
-      "ses_other_running",
-    ]);
+    expect(defaultSnapshot.showingOtherSessions).toBe(false);
+    expect(defaultSnapshot.visibleChildren.map((item) => item.id)).toEqual([]);
     expect(defaultSnapshot.visibleCounts).toEqual({
-      running: 1,
-      done: 1,
+      running: 0,
+      done: 0,
       error: 0,
     });
-    expect(defaultSnapshot.totalExecuted).toBe(2);
+    expect(defaultSnapshot.totalExecuted).toBe(0);
   });
 
-  it("uses other session fallback through the sidebar snapshot wrapper", () => {
+  it("keeps the sidebar snapshot scoped to the current session", () => {
     const nowMs = Date.parse("2026-04-30T10:20:00.000Z");
     const state = stateWith([
       child({
@@ -478,11 +480,79 @@ describe("TUI subagent snapshots", () => {
       nowMs,
     });
 
-    expect(snapshot.showingOtherSessions).toBe(true);
+    expect(snapshot.showingOtherSessions).toBe(false);
+    expect(snapshot.visibleChildren.map((item) => item.id)).toEqual([]);
+    expect(snapshot.visibleCounts).toEqual({ running: 0, done: 0, error: 0 });
+    expect(snapshot.totalExecuted).toBe(0);
+  });
+
+  it("computes sidebar total from counted current-session execution identities", () => {
+    const nowMs = Date.parse("2026-04-30T10:20:00.000Z");
+    const state = stateWith(
+      [
+        child({
+          id: "tool_current_proxy",
+          title: "task",
+          source: "tool",
+          parentID: "ses_current",
+          targetSessionID: "ses_current_child",
+          messageID: "msg_current",
+          status: "done",
+          color: "green",
+          endedAt: "2026-04-30T10:19:00.000Z",
+          updatedAt: "2026-04-30T10:19:00.000Z",
+        }),
+        child({
+          id: "ses_current_child",
+          title: "Current child",
+          source: "session",
+          parentID: "ses_current",
+          targetSessionID: "ses_current_child",
+          messageID: "msg_current",
+          status: "done",
+          color: "green",
+          endedAt: "2026-04-30T10:19:00.000Z",
+          updatedAt: "2026-04-30T10:19:00.000Z",
+        }),
+        child({
+          id: "ses_current_uncounted",
+          title: "Uncounted current child",
+          source: "session",
+          parentID: "ses_current",
+          targetSessionID: "ses_current_uncounted",
+          messageID: "msg_uncounted",
+          status: "done",
+          color: "green",
+          endedAt: "2026-04-30T10:19:00.000Z",
+          updatedAt: "2026-04-30T10:19:00.000Z",
+        }),
+        child({
+          id: "ses_other_child",
+          title: "Other child",
+          source: "session",
+          parentID: "ses_other",
+          targetSessionID: "ses_other_child",
+          status: "done",
+          color: "green",
+          endedAt: "2026-04-30T10:19:00.000Z",
+          updatedAt: "2026-04-30T10:19:00.000Z",
+        }),
+      ],
+      ["ses_current_child", "ses_other_child"],
+    );
+
+    const snapshot = resolveSidebarSubagentSnapshot({
+      state,
+      sessionID: "ses_current",
+      nowMs,
+      showCompletedHistory: true,
+    });
+
     expect(snapshot.visibleChildren.map((item) => item.id)).toEqual([
-      "ses_other_running",
+      "ses_current_child",
+      "ses_current_uncounted",
     ]);
-    expect(snapshot.visibleCounts).toEqual({ running: 1, done: 0, error: 0 });
+    expect(snapshot.visibleCounts).toEqual({ running: 0, done: 2, error: 0 });
     expect(snapshot.totalExecuted).toBe(1);
   });
 

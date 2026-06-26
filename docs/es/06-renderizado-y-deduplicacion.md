@@ -367,8 +367,8 @@ La sidebar TUI usa el resultado del render/derivación para mostrar filas humana
 
 Además, aplica reglas propias de UX:
 
-- preferir subagentes de la sesión actual;
-- mostrar “Other sessions” cuando corresponda;
+- mostrar solo subagentes de la sesión actual;
+- mantener globales el resumen de home y el render textual/status-file;
 - permitir foco y navegación;
 - abrir una sesión solo si hay `targetSessionID` navegable;
 - conservar scroll y estado expandido/colapsado.
