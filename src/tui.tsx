@@ -114,6 +114,7 @@ const SUBAGENTS_MAX_LIST_HEIGHT =
   (SUBAGENTS_MAX_VISIBLE_ROWS - 1) * SUBAGENTS_ROW_GAP;
 const INACTIVE_SUBAGENT_OPACITY = 0.65;
 const SIDEBAR_VERSION_OPACITY = 0.7;
+const SIDEBAR_FOCUS_INDICATOR = "●";
 
 const packageRequire = createRequire(import.meta.url);
 
@@ -1708,12 +1709,21 @@ function SidebarSubagents(props: {
         >{`${props.expanded() ? SIDEBAR_ARROW_EXPANDED : SIDEBAR_ARROW_COLLAPSED} ${t("subagents")}`}</text>
         <Show when={PLUGIN_VERSION}>
           {(version: Accessor<string>) => (
-            <text
-              fg={props.theme.textMuted}
-              opacity={SIDEBAR_VERSION_OPACITY}
-              selectable={false}
-              onMouseDown={props.onToggleExpanded}
-            >{` ${version()}`}</text>
+            <box flexDirection="row">
+              <text
+                fg={props.theme.textMuted}
+                opacity={SIDEBAR_VERSION_OPACITY}
+                selectable={false}
+                onMouseDown={props.onToggleExpanded}
+              >{` ${version()}`}</text>
+              <Show when={listFocused()}>
+                <text
+                  fg={props.theme.accent}
+                  selectable={false}
+                  onMouseDown={props.onToggleExpanded}
+                >{` ${SIDEBAR_FOCUS_INDICATOR}`}</text>
+              </Show>
+            </box>
           )}
         </Show>
       </box>
