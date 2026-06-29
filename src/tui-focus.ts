@@ -1,11 +1,48 @@
 export type SidebarReturnFocusAction = "none" | "clear-pending" | "focus-prompt";
 
-export function resolveSidebarReturnFocusAction(input: {
-  pendingSidebarRefocus?: {
-    parentSessionID: string;
-    childSessionID: string;
-    childRowID: string;
+export type PendingSidebarRefocus = {
+  parentSessionID: string;
+  childSessionID: string;
+  childRowID: string;
+  showCompletedHistory?: boolean;
+};
+
+export type ChildSessionState = {
+  id: string;
+  parentID: string;
+  targetSessionID?: string;
+};
+
+export function resolveSiblingSidebarRefocus(input: {
+  pendingSidebarRefocus?: PendingSidebarRefocus;
+  routeSessionID?: string;
+  children: Record<string, ChildSessionState> | ChildSessionState[];
+}): Pick<PendingSidebarRefocus, "childSessionID" | "childRowID"> | undefined {
+  const { pendingSidebarRefocus, routeSessionID, children } = input;
+  if (
+    !pendingSidebarRefocus ||
+    !routeSessionID ||
+    routeSessionID === pendingSidebarRefocus.parentSessionID ||
+    routeSessionID === pendingSidebarRefocus.childSessionID
+  ) {
+    return undefined;
+  }
+
+  const sibling = Object.values(children).find(
+    (child) =>
+      child.parentID === pendingSidebarRefocus.parentSessionID &&
+      child.targetSessionID === routeSessionID,
+  );
+  if (!sibling) return undefined;
+
+  return {
+    childSessionID: routeSessionID,
+    childRowID: sibling.id,
   };
+}
+
+export function resolveSidebarReturnFocusAction(input: {
+  pendingSidebarRefocus?: PendingSidebarRefocus;
   previousRouteSessionID?: string;
   routeSessionID?: string;
 }): SidebarReturnFocusAction {

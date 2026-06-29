@@ -60,6 +60,8 @@ import {
 import {
   focusPromptWithDeferredRetry,
   resolveSidebarReturnFocusAction,
+  resolveSiblingSidebarRefocus,
+  type PendingSidebarRefocus,
 } from "./tui-focus.js";
 import {
   createEmptyState,
@@ -1128,11 +1130,18 @@ function SidebarSubagents(props: {
     parentSessionID: string;
     childSessionID: string;
     childRowID: string;
+    showCompletedHistory: boolean;
   }) => void;
   sidebarWidth?: () => number | undefined;
   theme: TuiThemeCurrent;
+  restoreFromChild?: {
+    childRowID: string;
+    showCompletedHistory: boolean;
+  };
 }) {
-  const [showCompletedHistory, setShowCompletedHistory] = createSignal(false);
+  const [showCompletedHistory, setShowCompletedHistory] = createSignal(
+    props.restoreFromChild?.showCompletedHistory ?? false,
+  );
   const completedHistoryOptions = () => ({
     showCompletedHistory: showCompletedHistory(),
   });
@@ -1153,7 +1162,8 @@ function SidebarSubagents(props: {
   );
   const [selectedChildID, setSelectedChildID] = createSignal<
     string | undefined
-  >();
+  >(props.restoreFromChild?.childRowID);
+  let restoreChildRowID = props.restoreFromChild?.childRowID;
   const [mouseDownChildID, setMouseDownChildID] = createSignal<
     string | undefined
   >();
@@ -1448,6 +1458,18 @@ function SidebarSubagents(props: {
     if (scrollRegistration.restoreFramesRemaining <= 0) return;
     scrollRegistration.restoreFramesRemaining -= 1;
 
+    if (restoreChildRowID) {
+      const childRowID = restoreChildRowID;
+      restoreChildRowID = undefined;
+      scrollRegistration.restoreFramesRemaining = 0;
+      if (visibleChildIDs().includes(childRowID)) {
+        scrollChildIntoView(childRowID);
+      } else {
+        scrollbox.scrollTop = 0;
+      }
+      return;
+    }
+
     const top = preservedSidebarScrollTop({
       expanded: props.expanded(),
       offsetTop: scrollRegistration.offsetTop,
@@ -1539,8 +1561,10 @@ function SidebarSubagents(props: {
           parentSessionID: props.sessionID,
           childSessionID: target,
           childRowID: rowProps.childID,
+          showCompletedHistory: showCompletedHistory(),
         });
       }
+      snapshotSidebarScrollOffsets();
       navigateToSessionTarget(props.api, target);
     };
     rowActivations.set(rowProps.childID, activate);
@@ -2406,10 +2430,17 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
   let lastRunningReconcileAtMs = 0;
   let disposed = false;
   let previousRouteSessionID: string | undefined;
-  let pendingSidebarRefocus:
-    | { parentSessionID: string; childSessionID: string; childRowID: string }
-    | undefined;
+  let pendingSidebarRefocus: PendingSidebarRefocus | undefined;
+  let pendingRefocusConsumed = false;
   let activePromptRef: TuiPromptRef | undefined;
+
+  const consumePendingSidebarRefocus = ():
+    | PendingSidebarRefocus
+    | undefined => {
+    if (pendingRefocusConsumed) return undefined;
+    pendingRefocusConsumed = true;
+    return pendingSidebarRefocus;
+  };
 
   const setActivePromptRef = (ref: TuiPromptRef | undefined): void => {
     activePromptRef = ref;
@@ -2434,11 +2465,9 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
     });
   };
 
-  const rememberSidebarChildNavigation = (input: {
-    parentSessionID: string;
-    childSessionID: string;
-    childRowID: string;
-  }): void => {
+  const rememberSidebarChildNavigation = (
+    input: PendingSidebarRefocus,
+  ): void => {
     pendingSidebarRefocus = input;
   };
 
@@ -2537,13 +2566,25 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
       resetHydrateRetry(previousRouteSessionID);
     }
 
+    const siblingRefocus = resolveSiblingSidebarRefocus({
+      pendingSidebarRefocus,
+      routeSessionID,
+      children: state().children,
+    });
+    if (siblingRefocus && pendingSidebarRefocus) {
+      pendingSidebarRefocus = {
+        ...pendingSidebarRefocus,
+        ...siblingRefocus,
+      };
+    }
+
     const sidebarReturnAction = resolveSidebarReturnFocusAction({
       pendingSidebarRefocus,
       previousRouteSessionID,
       routeSessionID,
     });
+    pendingRefocusConsumed = false;
     if (sidebarReturnAction === "focus-prompt") {
-      pendingSidebarRefocus = undefined;
       blurVisibleSidebarSubagentList();
       focusActivePrompt();
     } else if (sidebarReturnAction === "clear-pending") {
@@ -2946,6 +2987,14 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
           route: api.route.current,
           childCount: Object.keys(state().children).length,
         });
+        const restoreFromChild = (() => {
+          const pending = consumePendingSidebarRefocus();
+          if (pending?.parentSessionID !== sessionID) return undefined;
+          return {
+            childRowID: pending.childRowID,
+            showCompletedHistory: pending.showCompletedHistory ?? false,
+          };
+        })();
         return (
           <Show when={subagentsSectionEnabled()}>
             <SidebarSubagents
@@ -2963,6 +3012,7 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
               onNavigateToChild={rememberSidebarChildNavigation}
               sidebarWidth={() => resolveSidebarWidth(ctx)}
               theme={ctx.theme.current}
+              restoreFromChild={restoreFromChild}
             />
           </Show>
         );

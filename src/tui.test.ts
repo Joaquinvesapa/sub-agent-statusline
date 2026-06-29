@@ -19,6 +19,7 @@ import { textColumns } from "./text-width.js";
 import {
   focusPromptWithDeferredRetry,
   resolveSidebarReturnFocusAction,
+  resolveSiblingSidebarRefocus,
 } from "./tui-focus.js";
 import { registerSubagentCommands } from "./tui-commands.js";
 import type { ChildSessionState, StatuslineState } from "./state.js";
@@ -1507,6 +1508,19 @@ describe("resolveSidebarReturnFocusAction", () => {
     ).toBe("focus-prompt");
   });
 
+  it("returns focus-prompt while preserving showCompletedHistory", () => {
+    expect(
+      resolveSidebarReturnFocusAction({
+        pendingSidebarRefocus: {
+          ...pendingSidebarRefocus,
+          showCompletedHistory: true,
+        },
+        previousRouteSessionID: "child",
+        routeSessionID: "parent",
+      }),
+    ).toBe("focus-prompt");
+  });
+
   it("returns clear-pending when route leaves remembered child path", () => {
     expect(
       resolveSidebarReturnFocusAction({
@@ -1534,6 +1548,64 @@ describe("resolveSidebarReturnFocusAction", () => {
         routeSessionID: "parent",
       }),
     ).toBe("none");
+  });
+});
+
+describe("resolveSiblingSidebarRefocus", () => {
+  const pendingSidebarRefocus = {
+    parentSessionID: "parent",
+    childSessionID: "child-a",
+    childRowID: "row-a",
+  };
+
+  it("returns updated child row ID when navigating to a sibling subagent", () => {
+    expect(
+      resolveSiblingSidebarRefocus({
+        pendingSidebarRefocus,
+        routeSessionID: "child-b",
+        children: {
+          "row-a": { id: "row-a", parentID: "parent", targetSessionID: "child-a" },
+          "row-b": { id: "row-b", parentID: "parent", targetSessionID: "child-b" },
+        },
+      }),
+    ).toEqual({ childSessionID: "child-b", childRowID: "row-b" });
+  });
+
+  it("returns undefined when route returns to parent", () => {
+    expect(
+      resolveSiblingSidebarRefocus({
+        pendingSidebarRefocus,
+        routeSessionID: "parent",
+        children: {
+          "row-a": { id: "row-a", parentID: "parent", targetSessionID: "child-a" },
+        },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when route stays on recorded child", () => {
+    expect(
+      resolveSiblingSidebarRefocus({
+        pendingSidebarRefocus,
+        routeSessionID: "child-a",
+        children: {
+          "row-a": { id: "row-a", parentID: "parent", targetSessionID: "child-a" },
+        },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when target session is not a sibling", () => {
+    expect(
+      resolveSiblingSidebarRefocus({
+        pendingSidebarRefocus,
+        routeSessionID: "other-child",
+        children: {
+          "row-a": { id: "row-a", parentID: "parent", targetSessionID: "child-a" },
+          "row-other": { id: "row-other", parentID: "other-parent", targetSessionID: "other-child" },
+        },
+      }),
+    ).toBeUndefined();
   });
 });
 
