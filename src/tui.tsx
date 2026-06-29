@@ -9,6 +9,7 @@ import type {
 import type {
   BoxRenderable,
   KeyEvent,
+  MouseEvent,
   ScrollBoxRenderable,
 } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
@@ -1152,6 +1153,9 @@ function SidebarSubagents(props: {
   const [selectedChildID, setSelectedChildID] = createSignal<
     string | undefined
   >();
+  const [mouseDownChildID, setMouseDownChildID] = createSignal<
+    string | undefined
+  >();
   const [listFocused, setListFocused] = createSignal(false);
   const [listFocusModeActive, setListFocusModeActive] = createSignal(false);
 
@@ -1564,14 +1568,27 @@ function SidebarSubagents(props: {
             ? () => {
                 setHovered(false);
                 setFocused(false);
+                setMouseDownChildID(undefined);
               }
             : undefined
         }
         onMouseDown={
           clickable()
-            ? () => {
+            ? (event: MouseEvent) => {
+                event.stopPropagation();
                 setSelectedChildID(rowProps.childID);
-                activate();
+                setMouseDownChildID(rowProps.childID);
+              }
+            : undefined
+        }
+        onMouseUp={
+          clickable()
+            ? (event: MouseEvent) => {
+                if (mouseDownChildID() === rowProps.childID) {
+                  event.stopPropagation();
+                  activate();
+                }
+                setMouseDownChildID(undefined);
               }
             : undefined
         }
