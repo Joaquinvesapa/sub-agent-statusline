@@ -5,7 +5,53 @@ export type PendingSidebarRefocus = {
   childSessionID: string;
   childRowID: string;
   showCompletedHistory?: boolean;
+  sidebarScrollTop?: number;
+  sidebarScrollAnchor?: {
+    childIDs: string[];
+    intraRowOffset: number;
+  };
 };
+
+export type SidebarRestoreFromChild = {
+  childRowID: string;
+  showCompletedHistory: boolean;
+  sidebarScrollTop?: number;
+  sidebarScrollAnchor?: PendingSidebarRefocus["sidebarScrollAnchor"];
+};
+
+export function resolveSidebarRestoreFromChild(input: {
+  pendingSidebarRefocus?: PendingSidebarRefocus;
+  sessionID: string;
+}): SidebarRestoreFromChild | undefined {
+  const { pendingSidebarRefocus, sessionID } = input;
+  if (pendingSidebarRefocus?.parentSessionID !== sessionID) return undefined;
+
+  return {
+    childRowID: pendingSidebarRefocus.childRowID,
+    showCompletedHistory: pendingSidebarRefocus.showCompletedHistory ?? false,
+    sidebarScrollTop: pendingSidebarRefocus.sidebarScrollTop,
+    sidebarScrollAnchor: pendingSidebarRefocus.sidebarScrollAnchor,
+  };
+}
+
+export function resolveSidebarRestoreFromChildRoute(input: {
+  pendingSidebarRefocus?: PendingSidebarRefocus;
+  previousRouteSessionID?: string;
+  routeSessionID?: string;
+  sessionID: string;
+}): SidebarRestoreFromChild | undefined {
+  const { pendingSidebarRefocus, sessionID } = input;
+  if (pendingSidebarRefocus?.parentSessionID !== sessionID) return undefined;
+
+  const action = resolveSidebarReturnFocusAction({
+    pendingSidebarRefocus,
+    previousRouteSessionID: input.previousRouteSessionID,
+    routeSessionID: input.routeSessionID,
+  });
+  if (action !== "focus-prompt") return undefined;
+
+  return resolveSidebarRestoreFromChild({ pendingSidebarRefocus, sessionID });
+}
 
 export type ChildSessionState = {
   id: string;

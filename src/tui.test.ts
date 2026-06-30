@@ -8,8 +8,11 @@ import {
   backfillHydratedTargetSessionIDs,
   hydratePreviousSubagents,
   preservedSidebarAnchorScrollTop,
+  preservedSidebarChildReturnScrollTop,
   preservedSidebarScrollTop,
+  resolvePreservedSidebarChildReturnScroll,
   resolveSidebarSubagentSnapshot,
+  shouldRunSidebarScrollRestore,
   probeRunningEvidence,
   resolveTuiSubagentSnapshot,
   subagentRowHeight,
@@ -18,6 +21,9 @@ import {
 import { textColumns } from "./text-width.js";
 import {
   focusPromptWithDeferredRetry,
+  type PendingSidebarRefocus,
+  resolveSidebarRestoreFromChild,
+  resolveSidebarRestoreFromChildRoute,
   resolveSidebarReturnFocusAction,
   resolveSiblingSidebarRefocus,
 } from "./tui-focus.js";
@@ -218,6 +224,119 @@ describe("TUI subagent snapshots", () => {
         viewportHeight: 5,
       }),
     ).toBeUndefined();
+  });
+
+  it("restores child-return sidebar scroll anchor even when the child row is already visible", () => {
+    expect(
+      preservedSidebarChildReturnScrollTop({
+        expanded: true,
+        childRowID: "ses_2",
+        offsetTop: 6,
+        anchor: {
+          childIDs: ["ses_3", "ses_4", "ses_5"],
+          intraRowOffset: 0,
+        },
+        rows: [
+          { id: "ses_1", height: 3 },
+          { id: "ses_2", height: 3 },
+          { id: "ses_3", height: 3 },
+          { id: "ses_4", height: 3 },
+          { id: "ses_5", height: 3 },
+        ],
+        scrollTop: 0,
+        scrollHeight: 15,
+        viewportHeight: 9,
+      }),
+    ).toBe(6);
+  });
+
+  it("leaves child-return sidebar scroll at top when the remembered row no longer exists", () => {
+    expect(
+      preservedSidebarChildReturnScrollTop({
+        expanded: true,
+        childRowID: "ses_removed",
+        offsetTop: 6,
+        anchor: {
+          childIDs: ["ses_3", "ses_4", "ses_5"],
+          intraRowOffset: 0,
+        },
+        rows: [
+          { id: "ses_1", height: 3 },
+          { id: "ses_2", height: 3 },
+          { id: "ses_3", height: 3 },
+        ],
+        scrollTop: 0,
+        scrollHeight: 9,
+        viewportHeight: 9,
+      }),
+    ).toBe(0);
+  });
+
+  it("distinguishes child-return restore-to-current from no restore data", () => {
+    expect(
+      resolvePreservedSidebarChildReturnScroll({
+        expanded: true,
+        childRowID: "ses_2",
+        anchor: {
+          childIDs: ["ses_2", "ses_3"],
+          intraRowOffset: 0,
+        },
+        rows: [
+          { id: "ses_1", height: 3 },
+          { id: "ses_2", height: 3 },
+          { id: "ses_3", height: 3 },
+        ],
+        scrollTop: 3,
+        scrollHeight: 11,
+        viewportHeight: 5,
+      }),
+    ).toEqual({ status: "restored", scrollTop: 3 });
+
+    expect(
+      resolvePreservedSidebarChildReturnScroll({
+        expanded: true,
+        childRowID: "ses_2",
+        rows: [
+          { id: "ses_1", height: 3 },
+          { id: "ses_2", height: 3 },
+        ],
+        scrollTop: 4,
+        scrollHeight: 7,
+        viewportHeight: 5,
+      }),
+    ).toEqual({ status: "no-data" });
+  });
+
+  it("restores child-return offset zero instead of treating it as no data", () => {
+    expect(
+      resolvePreservedSidebarChildReturnScroll({
+        expanded: true,
+        childRowID: "ses_1",
+        offsetTop: 0,
+        rows: [
+          { id: "ses_1", height: 3 },
+          { id: "ses_2", height: 3 },
+        ],
+        scrollTop: 4,
+        scrollHeight: 7,
+        viewportHeight: 5,
+      }),
+    ).toEqual({ status: "restored", scrollTop: 0 });
+  });
+
+  it("allows child-return one-shot restore even with no preserved-frame budget", () => {
+    expect(
+      shouldRunSidebarScrollRestore({
+        hasChildReturnRestore: true,
+        restoreFramesRemaining: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRunSidebarScrollRestore({
+        hasChildReturnRestore: false,
+        restoreFramesRemaining: 0,
+      }),
+    ).toBe(false);
   });
 
   it("does not show other-session rows by default when current session has no executions", () => {
@@ -1548,6 +1667,101 @@ describe("resolveSidebarReturnFocusAction", () => {
         routeSessionID: "parent",
       }),
     ).toBe("none");
+  });
+});
+
+describe("resolveSidebarRestoreFromChild", () => {
+  it("resolves child-return restore during parent render before route effect transfer", () => {
+    expect(
+      resolveSidebarRestoreFromChildRoute({
+        pendingSidebarRefocus: {
+          parentSessionID: "parent",
+          childSessionID: "child",
+          childRowID: "row-1",
+          showCompletedHistory: true,
+          sidebarScrollTop: 12,
+          sidebarScrollAnchor: {
+            childIDs: ["row-2", "row-3"],
+            intraRowOffset: 1,
+          },
+        },
+        previousRouteSessionID: "child",
+        routeSessionID: "parent",
+        sessionID: "parent",
+      }),
+    ).toEqual({
+      childRowID: "row-1",
+      showCompletedHistory: true,
+      sidebarScrollTop: 12,
+      sidebarScrollAnchor: {
+        childIDs: ["row-2", "row-3"],
+        intraRowOffset: 1,
+      },
+    });
+  });
+
+  it("does not resolve child-return restore for sibling navigation", () => {
+    expect(
+      resolveSidebarRestoreFromChildRoute({
+        pendingSidebarRefocus: {
+          parentSessionID: "parent",
+          childSessionID: "child-a",
+          childRowID: "row-a",
+        },
+        previousRouteSessionID: "child-a",
+        routeSessionID: "child-b",
+        sessionID: "parent",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("supports one-shot consumption after child -> parent return", () => {
+    let pendingSidebarRefocus: PendingSidebarRefocus | undefined = {
+      parentSessionID: "parent",
+      childSessionID: "child",
+      childRowID: "row-1",
+      showCompletedHistory: true,
+      sidebarScrollTop: 12,
+      sidebarScrollAnchor: {
+        childIDs: ["row-1", "row-2"],
+        intraRowOffset: 3,
+      },
+    };
+
+    const consume = () => {
+      const restore = resolveSidebarRestoreFromChild({
+        pendingSidebarRefocus,
+        sessionID: "parent",
+      });
+      if (restore) {
+        pendingSidebarRefocus = undefined;
+      }
+      return restore;
+    };
+
+    expect(consume()).toEqual({
+      childRowID: "row-1",
+      showCompletedHistory: true,
+      sidebarScrollTop: 12,
+      sidebarScrollAnchor: {
+        childIDs: ["row-1", "row-2"],
+        intraRowOffset: 3,
+      },
+    });
+    expect(consume()).toBeUndefined();
+  });
+
+  it("does not consume restore data for unrelated sidebar sessions", () => {
+    expect(
+      resolveSidebarRestoreFromChild({
+        pendingSidebarRefocus: {
+          parentSessionID: "parent",
+          childSessionID: "child",
+          childRowID: "row-1",
+        },
+        sessionID: "other",
+      }),
+    ).toBeUndefined();
   });
 });
 

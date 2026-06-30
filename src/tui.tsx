@@ -59,9 +59,12 @@ import {
 } from "./reconcile.js";
 import {
   focusPromptWithDeferredRetry,
+  resolveSidebarRestoreFromChild,
+  resolveSidebarRestoreFromChildRoute,
   resolveSidebarReturnFocusAction,
   resolveSiblingSidebarRefocus,
   type PendingSidebarRefocus,
+  type SidebarRestoreFromChild,
 } from "./tui-focus.js";
 import {
   createEmptyState,
@@ -297,6 +300,82 @@ export function preservedSidebarScrollTop(input: {
   const maxTop = Math.max(0, input.scrollHeight - input.viewportHeight);
   const top = Math.max(0, Math.min(input.offsetTop, maxTop));
   return top > 0 && input.scrollTop !== top ? top : undefined;
+}
+
+export function preservedSidebarChildReturnScrollTop(input: {
+  expanded: boolean;
+  childRowID: string;
+  offsetTop?: number;
+  anchor?: SidebarScrollAnchor;
+  rows: SidebarScrollRowLayout[];
+  leadingHeight?: number;
+  scrollTop: number;
+  scrollHeight: number;
+  viewportHeight: number;
+}): number | undefined {
+  if (!input.rows.some((row) => row.id === input.childRowID)) return 0;
+  if (input.offsetTop === undefined && !input.anchor) return undefined;
+
+  return preservedSidebarScrollTop({
+    expanded: input.expanded,
+    offsetTop: input.offsetTop ?? 0,
+    anchor: input.anchor,
+    rows: input.rows,
+    leadingHeight: input.leadingHeight,
+    scrollTop: input.scrollTop,
+    scrollHeight: input.scrollHeight,
+    viewportHeight: input.viewportHeight,
+  });
+}
+
+export type SidebarChildReturnScrollRestore =
+  | { status: "restored"; scrollTop: number }
+  | { status: "missing-child"; scrollTop: number }
+  | { status: "no-data" };
+
+export function resolvePreservedSidebarChildReturnScroll(input: {
+  expanded: boolean;
+  childRowID: string;
+  offsetTop?: number;
+  anchor?: SidebarScrollAnchor;
+  rows: SidebarScrollRowLayout[];
+  leadingHeight?: number;
+  scrollTop: number;
+  scrollHeight: number;
+  viewportHeight: number;
+}): SidebarChildReturnScrollRestore {
+  if (!input.rows.some((row) => row.id === input.childRowID)) {
+    return { status: "missing-child", scrollTop: 0 };
+  }
+  if (input.offsetTop === undefined && !input.anchor) return { status: "no-data" };
+
+  const anchorTop = resolveSidebarAnchorScrollTop({
+    expanded: input.expanded,
+    anchor: input.anchor,
+    rows: input.rows,
+    leadingHeight: input.leadingHeight ?? 0,
+    scrollTop: input.scrollTop,
+    scrollHeight: input.scrollHeight,
+    viewportHeight: input.viewportHeight,
+  });
+  if (anchorTop.matched) {
+    return { status: "restored", scrollTop: anchorTop.scrollTop ?? input.scrollTop };
+  }
+
+  if (input.offsetTop === undefined || !input.expanded) return { status: "no-data" };
+
+  const maxTop = Math.max(0, input.scrollHeight - input.viewportHeight);
+  return {
+    status: "restored",
+    scrollTop: Math.max(0, Math.min(input.offsetTop, maxTop)),
+  };
+}
+
+export function shouldRunSidebarScrollRestore(input: {
+  hasChildReturnRestore: boolean;
+  restoreFramesRemaining: number;
+}): boolean {
+  return input.hasChildReturnRestore || input.restoreFramesRemaining > 0;
 }
 
 type SidebarContentContext = TuiSlotContext & { session_id?: string };
@@ -1131,12 +1210,16 @@ function SidebarSubagents(props: {
     childSessionID: string;
     childRowID: string;
     showCompletedHistory: boolean;
+    sidebarScrollTop?: number;
+    sidebarScrollAnchor?: SidebarScrollAnchor;
   }) => void;
   sidebarWidth?: () => number | undefined;
   theme: TuiThemeCurrent;
   restoreFromChild?: {
     childRowID: string;
     showCompletedHistory: boolean;
+    sidebarScrollTop?: number;
+    sidebarScrollAnchor?: SidebarScrollAnchor;
   };
 }) {
   const [showCompletedHistory, setShowCompletedHistory] = createSignal(
@@ -1455,20 +1538,41 @@ function SidebarSubagents(props: {
 
   const restorePreservedScroll = (): void => {
     if (!scrollbox) return;
-    if (scrollRegistration.restoreFramesRemaining <= 0) return;
-    scrollRegistration.restoreFramesRemaining -= 1;
+    if (
+      !shouldRunSidebarScrollRestore({
+        hasChildReturnRestore: Boolean(restoreChildRowID),
+        restoreFramesRemaining: scrollRegistration.restoreFramesRemaining,
+      })
+    ) {
+      return;
+    }
 
     if (restoreChildRowID) {
       const childRowID = restoreChildRowID;
       restoreChildRowID = undefined;
       scrollRegistration.restoreFramesRemaining = 0;
-      if (visibleChildIDs().includes(childRowID)) {
-        scrollChildIntoView(childRowID);
+
+      const result = resolvePreservedSidebarChildReturnScroll({
+        expanded: props.expanded(),
+        childRowID,
+        offsetTop: props.restoreFromChild?.sidebarScrollTop,
+        anchor: props.restoreFromChild?.sidebarScrollAnchor,
+        rows: scrollRegistration.getRows(),
+        leadingHeight: scrollRegistration.getLeadingHeight(),
+        scrollTop: scrollbox.scrollTop,
+        scrollHeight: scrollbox.scrollHeight,
+        viewportHeight: scrollbox.viewport.height,
+      });
+      if (result.status === "restored" || result.status === "missing-child") {
+        scrollRegistration.offsetTop = result.scrollTop;
+        scrollbox.scrollTop = result.scrollTop;
       } else {
-        scrollbox.scrollTop = 0;
+        scrollChildIntoView(childRowID);
       }
       return;
     }
+
+    scrollRegistration.restoreFramesRemaining -= 1;
 
     const top = preservedSidebarScrollTop({
       expanded: props.expanded(),
@@ -1557,11 +1661,16 @@ function SidebarSubagents(props: {
     const activate = () => {
       const target = targetSessionID();
       if (target) {
+        const sidebarScrollTop = scrollbox
+          ? clampedScrollTop(scrollbox, scrollbox.scrollTop)
+          : undefined;
         props.onNavigateToChild({
           parentSessionID: props.sessionID,
           childSessionID: target,
           childRowID: rowProps.childID,
           showCompletedHistory: showCompletedHistory(),
+          sidebarScrollTop,
+          sidebarScrollAnchor: currentSidebarScrollAnchor(),
         });
       }
       snapshotSidebarScrollOffsets();
@@ -2431,15 +2540,35 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
   let disposed = false;
   let previousRouteSessionID: string | undefined;
   let pendingSidebarRefocus: PendingSidebarRefocus | undefined;
-  let pendingRefocusConsumed = false;
+  let pendingSidebarRestoreFromChild: PendingSidebarRefocus | undefined;
   let activePromptRef: TuiPromptRef | undefined;
 
-  const consumePendingSidebarRefocus = ():
-    | PendingSidebarRefocus
-    | undefined => {
-    if (pendingRefocusConsumed) return undefined;
-    pendingRefocusConsumed = true;
-    return pendingSidebarRefocus;
+  const consumePendingSidebarRestoreFromChild = (
+    routeSessionID: string | undefined,
+    sessionID: string,
+  ): SidebarRestoreFromChild | undefined => {
+    const pendingRestore = resolveSidebarRestoreFromChild({
+      pendingSidebarRefocus: pendingSidebarRestoreFromChild,
+      sessionID,
+    });
+    if (pendingRestore) {
+      pendingSidebarRestoreFromChild = undefined;
+      return pendingRestore;
+    }
+
+    const routeRestore = resolveSidebarRestoreFromChildRoute({
+      pendingSidebarRefocus,
+      previousRouteSessionID,
+      routeSessionID,
+      sessionID,
+    });
+    if (!routeRestore) return undefined;
+
+    pendingSidebarRefocus = undefined;
+    pendingSidebarRestoreFromChild = undefined;
+    blurVisibleSidebarSubagentList();
+    focusActivePrompt();
+    return routeRestore;
   };
 
   const setActivePromptRef = (ref: TuiPromptRef | undefined): void => {
@@ -2469,6 +2598,7 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
     input: PendingSidebarRefocus,
   ): void => {
     pendingSidebarRefocus = input;
+    pendingSidebarRestoreFromChild = undefined;
   };
 
   const setSubagentsExpandedPreference = (expanded: boolean): void => {
@@ -2583,12 +2713,14 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
       previousRouteSessionID,
       routeSessionID,
     });
-    pendingRefocusConsumed = false;
     if (sidebarReturnAction === "focus-prompt") {
+      pendingSidebarRestoreFromChild = pendingSidebarRefocus;
+      pendingSidebarRefocus = undefined;
       blurVisibleSidebarSubagentList();
       focusActivePrompt();
     } else if (sidebarReturnAction === "clear-pending") {
       pendingSidebarRefocus = undefined;
+      pendingSidebarRestoreFromChild = undefined;
     }
 
     previousRouteSessionID = routeSessionID;
@@ -2987,14 +3119,10 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
           route: api.route.current,
           childCount: Object.keys(state().children).length,
         });
-        const restoreFromChild = (() => {
-          const pending = consumePendingSidebarRefocus();
-          if (pending?.parentSessionID !== sessionID) return undefined;
-          return {
-            childRowID: pending.childRowID,
-            showCompletedHistory: pending.showCompletedHistory ?? false,
-          };
-        })();
+        const restoreFromChild = consumePendingSidebarRestoreFromChild(
+          routeSessionID,
+          sessionID,
+        );
         return (
           <Show when={subagentsSectionEnabled()}>
             <SidebarSubagents
