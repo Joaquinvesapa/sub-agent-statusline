@@ -92,6 +92,7 @@ const MIN_ROW_WIDTH = 24;
 const MIN_LABEL_WIDTH = 8;
 const DONE_TOKEN_REHYDRATE_THROTTLE_MS = 2000;
 const DONE_TOKEN_REHYDRATE_MAX_ATTEMPTS = 15;
+const MAINTENANCE_TICK_MS = DONE_TOKEN_REHYDRATE_THROTTLE_MS;
 const HYDRATE_RETRY_BASE_DELAY_MS = 1000;
 const HYDRATE_RETRY_MAX_DELAY_MS = 30_000;
 const HYDRATE_RETRY_MAX_ATTEMPTS = 6;
@@ -636,6 +637,7 @@ function hydrateStateTokensFromTuiState(
   let changed = false;
 
   for (const child of Object.values(state.children)) {
+    if (child.status !== "running" && hasTokenTotal(child.tokens)) continue;
     const hydrated = hydrateChildTokensFromTuiState(api, child);
     const nextTokens = mergeTokenState(child.tokens, hydrated);
     if (!sameTokens(child.tokens, nextTokens)) {
@@ -689,6 +691,46 @@ function refreshLiveState(state: StatuslineState): boolean {
   }
 
   return false;
+}
+
+export function runTuiStateMaintenance(
+  api: TuiPluginApi,
+  current: StatuslineState,
+): StatuslineState {
+  const next = cloneState(current);
+  const hydrated = hydrateStateTokensFromTuiState(api, next);
+  const refreshed = refreshLiveState(next);
+  return hydrated || refreshed ? next : current;
+}
+
+export function createTuiMaintenanceTimers(input: {
+  onElapsedTick: () => void;
+  onMaintenanceTick: () => void;
+}): {
+  syncElapsedTimer: (hasRunningChild: boolean) => void;
+  dispose: () => void;
+} {
+  let elapsedTimer: ReturnType<typeof setInterval> | undefined;
+  const maintenanceTimer = setInterval(
+    input.onMaintenanceTick,
+    MAINTENANCE_TICK_MS,
+  );
+
+  return {
+    syncElapsedTimer(hasRunningChild) {
+      if (hasRunningChild && !elapsedTimer) {
+        elapsedTimer = setInterval(input.onElapsedTick, ELAPSED_TICK_MS);
+      } else if (!hasRunningChild && elapsedTimer) {
+        clearInterval(elapsedTimer);
+        elapsedTimer = undefined;
+      }
+    },
+    dispose() {
+      if (elapsedTimer) clearInterval(elapsedTimer);
+      clearInterval(maintenanceTimer);
+      elapsedTimer = undefined;
+    },
+  };
 }
 
 function elapsedMs(child: ChildSessionState, nowMs: number): number {
@@ -2693,27 +2735,6 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
     })();
   });
 
-  const tick = setInterval(() => {
-    const currentNowMs = Date.now();
-    const shouldRunReconcileMaintenance =
-      currentNowMs - lastRunningReconcileAtMs >=
-      RUNNING_RECONCILE_MAINTENANCE_INTERVAL_MS;
-    if (shouldRunReconcileMaintenance) {
-      void reconcileRunningChildren();
-    }
-
-    snapshotSidebarScrollOffsets();
-    setNowMs(currentNowMs);
-    setState((current: StatuslineState) => {
-      const next = cloneState(current);
-      const hydrated = hydrateStateTokensFromTuiState(api, next);
-      const refreshed = refreshLiveState(next);
-      if (!hydrated && !refreshed) return current;
-      persistStateSnapshot(statePath, textPath, next);
-      return next;
-    });
-  }, ELAPSED_TICK_MS);
-
   const reconcileRunningChildren = async (): Promise<void> => {
     if (reconcileInFlight || disposed) return;
     reconcileInFlight = true;
@@ -2939,6 +2960,36 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
     }
   };
 
+  const timers = createTuiMaintenanceTimers({
+    onElapsedTick: () => {
+      snapshotSidebarScrollOffsets();
+      setNowMs(Date.now());
+    },
+    onMaintenanceTick: () => {
+      const currentNowMs = Date.now();
+      if (
+        currentNowMs - lastRunningReconcileAtMs >=
+        RUNNING_RECONCILE_MAINTENANCE_INTERVAL_MS
+      ) {
+        void reconcileRunningChildren();
+      }
+
+      setState((current: StatuslineState) => {
+        const next = runTuiStateMaintenance(api, current);
+        if (next === current) return current;
+        snapshotSidebarScrollOffsets();
+        persistStateSnapshot(statePath, textPath, next);
+        return next;
+      });
+    },
+  });
+
+  createEffect(() => {
+    timers.syncElapsedTimer(
+      Object.values(state().children).some((child) => child.status === "running"),
+    );
+  });
+
   const applyEvent = (event: unknown): void => {
     debugEvent(event);
     snapshotSidebarScrollOffsets();
@@ -2977,7 +3028,7 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
 
   api.lifecycle.onDispose(() => {
     disposed = true;
-    clearInterval(tick);
+    timers.dispose();
     for (const timeout of hydrateRetryTimeouts.values()) {
       clearTimeout(timeout);
     }
