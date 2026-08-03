@@ -61,6 +61,7 @@ import {
   focusPromptWithDeferredRetry,
   resolveSidebarReturnFocusAction,
   resolveSiblingSidebarRefocus,
+  shouldReleaseSidebarListFocus,
   type PendingSidebarRefocus,
 } from "./tui-focus.js";
 import {
@@ -1243,6 +1244,20 @@ function SidebarSubagents(props: {
     isListFocusModeActive: () => listFocusModeActive(),
   };
   sidebarListFocusRegistrations.add(focusRegistration);
+  let previousRunningCount: number | undefined;
+  createEffect(() => {
+    const runningCount = counts().running;
+    const shouldReleaseFocus = shouldReleaseSidebarListFocus({
+      previousRunningCount,
+      runningCount,
+      listFocusModeActive: listFocusModeActive(),
+    });
+    previousRunningCount = runningCount;
+    if (!shouldReleaseFocus) return;
+
+    focusRegistration.blurList();
+    props.onReturnFocus();
+  });
   const completedHistoryRegistration: SidebarCompletedHistoryRegistration = {
     toggleCompletedHistory: () => {
       setShowCompletedHistory((current) => !current);
