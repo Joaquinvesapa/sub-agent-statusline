@@ -21,6 +21,7 @@ import {
   focusPromptWithDeferredRetry,
   resolveSidebarReturnFocusAction,
   resolveSiblingSidebarRefocus,
+  shouldReleaseSidebarListFocus,
 } from "./tui-focus.js";
 import { registerSubagentCommands } from "./tui-commands.js";
 import type { ChildSessionState, StatuslineState } from "./state.js";
@@ -1633,6 +1634,35 @@ describe("resolveSidebarReturnFocusAction", () => {
         routeSessionID: "parent",
       }),
     ).toBe("none");
+  });
+});
+
+describe("shouldReleaseSidebarListFocus", () => {
+  it("releases active list focus when the last running subagent completes", () => {
+    expect(
+      shouldReleaseSidebarListFocus({
+        previousRunningCount: 1,
+        runningCount: 0,
+        listFocusModeActive: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("preserves list focus without a running-to-terminal transition", () => {
+    expect(
+      shouldReleaseSidebarListFocus({
+        previousRunningCount: 0,
+        runningCount: 0,
+        listFocusModeActive: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldReleaseSidebarListFocus({
+        previousRunningCount: 1,
+        runningCount: 0,
+        listFocusModeActive: false,
+      }),
+    ).toBe(false);
   });
 });
 

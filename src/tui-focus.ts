@@ -13,6 +13,18 @@ export type ChildSessionState = {
   targetSessionID?: string;
 };
 
+export function shouldReleaseSidebarListFocus(input: {
+  previousRunningCount?: number;
+  runningCount: number;
+  listFocusModeActive: boolean;
+}): boolean {
+  return (
+    input.listFocusModeActive &&
+    (input.previousRunningCount ?? 0) > 0 &&
+    input.runningCount === 0
+  );
+}
+
 export function resolveSiblingSidebarRefocus(input: {
   pendingSidebarRefocus?: PendingSidebarRefocus;
   routeSessionID?: string;
