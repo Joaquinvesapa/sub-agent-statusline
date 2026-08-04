@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { readOpenCodeLogFileIfSmall } from "./logs.js";
 import {
   backfillHydratedTargetSessionIDs,
+  formatChildModelLine,
   hydratePreviousSubagents,
   preservedSidebarAnchorScrollTop,
   preservedSidebarScrollTop,
@@ -126,6 +127,45 @@ describe("TUI subagent snapshots", () => {
         nowMs,
       }),
     ).toBe(2);
+  });
+
+  it("shows model metadata only with a variant and accounts for layout height", () => {
+    const nowMs = Date.parse("2026-04-30T10:20:00.000Z");
+    const plain = child({ title: "Short task" });
+    const modeled = child({
+      title: "Short task",
+      model: { providerID: "openai", modelID: "gpt-5.6", variant: "high" },
+    });
+    const providers = [{
+      id: "openai",
+      models: { "gpt-5.6": { name: "GPT 5.6" } },
+    }] as unknown as TuiPluginApi["state"]["provider"];
+
+    expect(formatChildModelLine(plain, providers, 20)).toBeUndefined();
+    expect(
+      formatChildModelLine(
+        child({ model: { providerID: "openai", modelID: "gpt-5.6" } }),
+        providers,
+        20,
+      ),
+    ).toBeUndefined();
+    expect(subagentRowHeight({ child: plain, nowMs })).toBe(2);
+    expect(formatChildModelLine(modeled, providers, 20)).toBe("GPT 5.6 · high");
+    expect(subagentRowHeight({ child: modeled, nowMs })).toBe(3);
+    expect(
+      formatChildModelLine(
+        child({ model: { providerID: "missing", modelID: "長いモデル識別子", variant: "最大" } }),
+        providers,
+        12,
+      ),
+    ).toSatisfy((line: string | undefined) => !!line && textColumns(line) <= 12);
+    expect(
+      formatChildModelLine(
+        child({ model: { providerID: "missing", modelID: "fallback-model", variant: "fast" } }),
+        providers,
+        40,
+      ),
+    ).toBe("fallback-model · fast");
   });
 
   it("preserves sidebar scroll with the visible row anchor first", () => {
@@ -858,6 +898,51 @@ describe("hydratePreviousSubagents", () => {
       resolveTuiSubagentSnapshot({ state, sessionID: "ses_parent" })
         .visibleCounts,
     ).toEqual({ running: 1, done: 0, error: 0 });
+  });
+
+  it("hydrates model metadata from direct and enveloped child messages", async () => {
+    const state = await hydrateState({
+      children: [
+        hydratedChild,
+        { ...hydratedChild, id: "ses_envelope" },
+      ],
+      childMessages: {
+        ses_child: [{
+          sessionID: "ses_child",
+          role: "assistant",
+          providerID: "openai",
+          modelID: "gpt-5.6",
+          variant: "high",
+          time: { created: 10 },
+        }],
+        ses_envelope: [{
+          info: {
+            sessionID: "ses_envelope",
+            role: "assistant",
+            providerID: "anthropic",
+            modelID: "claude-sonnet",
+            variant: "max",
+            time: { created: 20 },
+          },
+          parts: [],
+        }],
+      },
+      statuses: {
+        ses_child: { status: "running" },
+        ses_envelope: { status: "running" },
+      },
+    });
+
+    expect(state.children.ses_child.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.6",
+      variant: "high",
+    });
+    expect(state.children.ses_envelope.model).toEqual({
+      providerID: "anthropic",
+      modelID: "claude-sonnet",
+      variant: "max",
+    });
   });
 
   it("hydrates terminal done and error evidence", async () => {

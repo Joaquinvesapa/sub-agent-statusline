@@ -16,6 +16,12 @@ export interface ChildTokenState {
   contextPercent?: number;
 }
 
+export interface ChildModelState {
+  providerID: string;
+  modelID: string;
+  variant?: string;
+}
+
 export interface ChildSessionState {
   id: string;
   title: string;
@@ -33,6 +39,7 @@ export interface ChildSessionState {
   endedAt?: string;
   elapsedMs?: number;
   tokens?: ChildTokenState;
+  model?: ChildModelState;
 }
 
 export interface StatuslineState {
@@ -223,6 +230,17 @@ function sanitizeTokens(input: unknown): ChildTokenState | undefined {
   return tokens;
 }
 
+function sanitizeModel(input: unknown): ChildModelState | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const raw = input as Record<string, unknown>;
+  const providerID =
+    typeof raw.providerID === "string" ? raw.providerID.trim() : "";
+  const modelID = typeof raw.modelID === "string" ? raw.modelID.trim() : "";
+  const variant = typeof raw.variant === "string" ? raw.variant.trim() : "";
+  if (!providerID || !modelID) return undefined;
+  return { providerID, modelID, ...(variant ? { variant } : {}) };
+}
+
 function sanitizeTargetSessionID(
   value: unknown,
   fallback?: string,
@@ -368,6 +386,7 @@ export function refreshDerivedFields(
       targetSessionID,
       color: statusColor(status),
       tokens: sanitizeTokens(child.tokens),
+      model: sanitizeModel(child.model),
       elapsedMs: resolveElapsedMs(
         {
           ...child,
@@ -595,6 +614,7 @@ export function upsertRunningChild(
     endedAt: shouldKeepCompletedTiming ? existing.endedAt : undefined,
     elapsedMs: existing?.elapsedMs,
     tokens: existing?.tokens,
+    model: existing?.model,
   };
 
   if (
@@ -611,7 +631,8 @@ export function upsertRunningChild(
     next.color === existing.color &&
     next.startedAt === existing.startedAt &&
     next.endedAt === existing.endedAt &&
-    sameTokens(next.tokens, existing.tokens)
+    sameTokens(next.tokens, existing.tokens) &&
+    JSON.stringify(next.model) === JSON.stringify(existing.model)
   ) {
     return counted;
   }
@@ -721,6 +742,29 @@ export function upsertChildDetails(
   state.children[childID] = next;
   state.updatedAt = observedUpdatedAt;
   return true;
+}
+
+export function setChildModel(
+  state: StatuslineState,
+  sessionID: string,
+  model: ChildModelState | undefined,
+  updatedAt?: string,
+): boolean {
+  const matches = Object.values(state.children).filter(
+    (child) => child.id === sessionID || child.targetSessionID === sessionID,
+  );
+  if (matches.length === 0) return false;
+
+  let changed = false;
+  const observedUpdatedAt = safeTimestamp(updatedAt, new Date().toISOString());
+  for (const child of matches) {
+    const sanitized = sanitizeModel(model);
+    if (JSON.stringify(child.model) === JSON.stringify(sanitized)) continue;
+    state.children[child.id] = { ...child, model: sanitized };
+    changed = true;
+  }
+  if (changed) state.updatedAt = observedUpdatedAt;
+  return changed;
 }
 
 export function getCounts(state: StatuslineState): StatusCounts {

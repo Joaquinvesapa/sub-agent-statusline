@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applySubagentEvent,
+  extractLatestAssistantModel,
   extractChildDetails,
   extractSessionID,
   extractTaskToolEvidence,
@@ -451,6 +452,157 @@ describe("events", () => {
       status: "error",
       endedAt: "2026-05-10T10:20:00.000Z",
     });
+  });
+});
+
+describe("assistant model metadata", () => {
+  it("normalizes direct messages and message envelopes", () => {
+    const direct = {
+      id: "msg_1",
+      sessionID: "ses_child",
+      role: "assistant",
+      providerID: "openai",
+      modelID: "gpt-5.6",
+      variant: "high",
+      time: { created: 10 },
+    };
+
+    expect(extractLatestAssistantModel(direct)?.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.6",
+      variant: "high",
+    });
+    expect(extractLatestAssistantModel({ info: direct, parts: [] })?.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.6",
+      variant: "high",
+    });
+  });
+
+  it("selects the latest assistant and applies message.updated to its child session", () => {
+    const latest = extractLatestAssistantModel([
+      {
+        info: {
+          sessionID: "ses_child",
+          role: "assistant",
+          providerID: "openai",
+          modelID: "old-model",
+          variant: "low",
+          time: { created: 10 },
+        },
+        parts: [],
+      },
+      {
+        sessionID: "ses_child",
+        role: "assistant",
+        providerID: "anthropic",
+        modelID: "new-model",
+        variant: "max",
+        time: { created: 20 },
+      },
+    ]);
+    expect(latest?.model).toEqual({
+      providerID: "anthropic",
+      modelID: "new-model",
+      variant: "max",
+    });
+
+    const state = createEmptyState();
+    applySubagentEvent(state, {
+      type: "session.created",
+      properties: { info: { id: "ses_child", parentID: "ses_parent", title: "Work" } },
+    });
+    applySubagentEvent(state, {
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "msg_2",
+          sessionID: "ses_child",
+          role: "assistant",
+          providerID: "anthropic",
+          modelID: "new-model",
+          variant: "max",
+          time: { created: 20 },
+        },
+      },
+    });
+    expect(state.children.ses_child.model).toEqual(latest?.model);
+
+    applySubagentEvent(state, {
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "msg_3",
+          sessionID: "ses_child",
+          role: "assistant",
+          providerID: "anthropic",
+          modelID: "new-model",
+          time: { created: 30 },
+        },
+      },
+    });
+    expect(state.children.ses_child.model).toEqual({
+      providerID: "anthropic",
+      modelID: "new-model",
+    });
+
+    applySubagentEvent(state, {
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "msg_4",
+          sessionID: "ses_child",
+          role: "assistant",
+          providerID: "openai",
+          modelID: "next-model",
+          time: { created: 40 },
+        },
+      },
+    });
+    expect(state.children.ses_child.model).toEqual({
+      providerID: "openai",
+      modelID: "next-model",
+    });
+  });
+
+  it("associates child-session metadata with correlated wrappers", () => {
+    const state = createEmptyState();
+    applySubagentEvent(state, {
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "part_1",
+          type: "tool",
+          tool: "task",
+          sessionID: "ses_parent",
+          messageID: "msg_parent",
+          state: {
+            status: "running",
+            metadata: { sessionId: "ses_child" },
+            input: { description: "Work" },
+          },
+        },
+      },
+    });
+    applySubagentEvent(state, {
+      type: "session.created",
+      properties: { info: { id: "ses_child", parentID: "ses_parent", title: "Work" } },
+    });
+    applySubagentEvent(state, {
+      type: "message.updated",
+      properties: {
+        info: {
+          sessionID: "ses_child",
+          role: "assistant",
+          providerID: "openai",
+          modelID: "gpt-5.6",
+          variant: "high",
+          time: { created: 20 },
+        },
+      },
+    });
+
+    expect(state.children.ses_child.model).toEqual(state.children["tool:part_1"].model);
   });
 });
 
