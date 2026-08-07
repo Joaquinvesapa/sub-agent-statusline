@@ -1,10 +1,15 @@
-import type { ChildTokenState, StatuslineState } from "./state.js";
+import type {
+  ChildModelState,
+  ChildTokenState,
+  StatuslineState,
+} from "./state.js";
 import {
   deriveOpenCodeSessionStatus,
   hasStructuredErrorEvidence,
 } from "./reconcile.js";
 import {
   markChildStatus,
+  setChildModel,
   upsertChildDetails,
   upsertRunningChild,
 } from "./state.js";
@@ -80,6 +85,57 @@ type SyntheticTargetContext = {
 
 export function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function normalizeMessage(value: unknown): Record<string, unknown> | undefined {
+  const message = isRecord(value) ? value : undefined;
+  if (!message) return undefined;
+  return isRecord(message.info) ? message.info : message;
+}
+
+function messageActivityMs(message: Record<string, unknown>): number {
+  const time = isRecord(message.time) ? message.time : undefined;
+  const value = time?.completed ?? time?.updated ?? time?.created;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+}
+
+export function extractLatestAssistantModel(
+  input: unknown | readonly unknown[],
+): { sessionID: string; model?: ChildModelState; updatedAt?: string } | undefined {
+  const values = Array.isArray(input) ? input : [input];
+  const assistants = values
+    .map((value, index) => ({ message: normalizeMessage(value), index }))
+    .filter(
+      (entry): entry is { message: Record<string, unknown>; index: number } =>
+        entry.message?.role === "assistant",
+    )
+    .sort(
+      (left, right) =>
+        messageActivityMs(left.message) - messageActivityMs(right.message) ||
+        left.index - right.index,
+    );
+  const latest = assistants.at(-1)?.message;
+  if (!latest) return undefined;
+  const sessionID = asString(latest.sessionID);
+  if (!sessionID) return undefined;
+  const providerID = asString(latest.providerID)?.trim();
+  const modelID = asString(latest.modelID)?.trim();
+  const variant = asString(latest.variant)?.trim();
+  const model =
+    providerID && modelID
+      ? { providerID, modelID, ...(variant ? { variant } : {}) }
+      : undefined;
+  const activity = messageActivityMs(latest);
+  return {
+    sessionID,
+    model,
+    updatedAt: activity > 0 ? new Date(activity).toISOString() : undefined,
+  };
 }
 
 function conciseText(value: unknown): string | undefined {
@@ -983,6 +1039,16 @@ export function applySubagentEvent(
   }
 
   if (type === "message.updated") {
+    const assistantModel = extractLatestAssistantModel(e.properties?.info ?? e);
+    if (assistantModel) {
+      changed =
+        setChildModel(
+          state,
+          assistantModel.sessionID,
+          assistantModel.model,
+          assistantModel.updatedAt,
+        ) || changed;
+    }
     const completed = extractCompletedAssistantMessage(e);
     if (completed) {
       for (const child of Object.values(state.children)) {

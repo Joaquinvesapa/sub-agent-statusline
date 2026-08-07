@@ -605,4 +605,21 @@ describe("state", () => {
     expect(loaded.countedChildIDs.ses_child).toBeUndefined();
     expect(loaded.countedChildIDs["subtask:old"]).toBeUndefined();
   });
+
+  it("sanitizes and retains model metadata through persistence", async () => {
+    const harness = await createRuntimeHarness();
+    const state = createEmptyState();
+    state.children.ses_child = child({
+      model: { providerID: " openai ", modelID: " gpt-5.6 ", variant: " high " },
+    });
+
+    await saveState(harness.statePath, state);
+    const loaded = await loadState(harness.statePath);
+
+    expect(loaded.children.ses_child.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.6",
+      variant: "high",
+    });
+  });
 });

@@ -31,6 +31,7 @@ import type { Accessor } from "solid-js";
 import {
   applySubagentEvent,
   extractChildDetails,
+  extractLatestAssistantModel,
   extractTaskToolEvidence,
 } from "./events.js";
 import { readOpenCodeLogFileIfSmall } from "./logs.js";
@@ -75,6 +76,7 @@ import {
   resolveTextPath,
   saveState,
   saveStatusText,
+  setChildModel,
   upsertChildDetails,
   type ChildTokenState,
   type ChildSessionState,
@@ -111,10 +113,12 @@ const SUBAGENTS_SECTION_ENABLED_KV_KEY = "subagents.sidebar.enabled";
 const SUBAGENTS_MAX_VISIBLE_ROWS = 5;
 const SUBAGENTS_RUNNING_ROW_HEIGHT = 3;
 const SUBAGENTS_TERMINAL_ROW_HEIGHT = 2;
+const SUBAGENTS_MODEL_ROW_HEIGHT = 1;
 const SUBAGENTS_ROW_GAP = 0;
 const SUBAGENTS_ROW_MARKER_WIDTH = 4;
 const SUBAGENTS_MAX_LIST_HEIGHT =
-  SUBAGENTS_MAX_VISIBLE_ROWS * SUBAGENTS_RUNNING_ROW_HEIGHT +
+  SUBAGENTS_MAX_VISIBLE_ROWS *
+    (SUBAGENTS_RUNNING_ROW_HEIGHT + SUBAGENTS_MODEL_ROW_HEIGHT) +
   (SUBAGENTS_MAX_VISIBLE_ROWS - 1) * SUBAGENTS_ROW_GAP;
 const INACTIVE_SUBAGENT_OPACITY = 0.65;
 const SIDEBAR_VERSION_OPACITY = 0.7;
@@ -391,6 +395,7 @@ function cloneState(state: StatuslineState): StatuslineState {
         {
           ...child,
           tokens: child.tokens ? { ...child.tokens } : undefined,
+          model: child.model ? { ...child.model } : undefined,
         },
       ]),
     ),
@@ -1099,12 +1104,32 @@ export function subagentRowHeight(input: {
   sidebarWidth?: number;
   reservedWidth?: number;
 }): number {
-  if (input.child.status !== "running") return SUBAGENTS_TERMINAL_ROW_HEIGHT;
+  const modelHeight = input.child.model?.variant
+    ? SUBAGENTS_MODEL_ROW_HEIGHT
+    : 0;
+  if (input.child.status !== "running") {
+    return SUBAGENTS_TERMINAL_ROW_HEIGHT + modelHeight;
+  }
 
   const line = formatChildRowLine(input);
-  return line.secondaryLine
-    ? SUBAGENTS_RUNNING_ROW_HEIGHT
-    : SUBAGENTS_RUNNING_ROW_HEIGHT - 1;
+  return (
+    (line.secondaryLine
+      ? SUBAGENTS_RUNNING_ROW_HEIGHT
+      : SUBAGENTS_RUNNING_ROW_HEIGHT - 1) + modelHeight
+  );
+}
+
+export function formatChildModelLine(
+  child: ChildSessionState,
+  providers: TuiPluginApi["state"]["provider"],
+  width: number,
+): string | undefined {
+  if (!child.model?.variant) return undefined;
+  const provider = providers.find(
+    (candidate) => candidate.id === child.model?.providerID,
+  );
+  const name = provider?.models[child.model.modelID]?.name || child.model.modelID;
+  return ellipsize(`${name} · ${child.model.variant}`, Math.max(1, width));
 }
 
 export interface TuiSubagentSnapshot {
@@ -1226,6 +1251,9 @@ function SidebarSubagents(props: {
           child.tokens?.output ?? "",
           child.tokens?.total ?? "",
           child.tokens?.contextPercent ?? "",
+          child.model?.providerID ?? "",
+          child.model?.modelID ?? "",
+          child.model?.variant ?? "",
         ]),
       )
       .join("|"),
@@ -1611,6 +1639,15 @@ function SidebarSubagents(props: {
         reservedWidth: SUBAGENTS_ROW_MARKER_WIDTH,
       });
     });
+    const modelLine = createMemo(() => {
+      const currentChild = child();
+      if (!currentChild) return undefined;
+      return formatChildModelLine(
+        currentChild,
+        props.api.state.provider,
+        rowWidthBudget(props.sidebarWidth?.()) - SUBAGENTS_ROW_MARKER_WIDTH,
+      );
+    });
     const activate = () => {
       const target = targetSessionID();
       if (target) {
@@ -1704,6 +1741,11 @@ function SidebarSubagents(props: {
               <text
                 fg={emphasized() ? props.theme.text : props.theme.textMuted}
               >{`    ↳ ${CLOCK_ICON} ${terminalLine().meta}`}</text>
+              <Show when={modelLine()}>
+                {(metadata: Accessor<string>) => (
+                  <text fg={props.theme.textMuted}>{`    ${metadata()}`}</text>
+                )}
+              </Show>
             </box>
           }
         >
@@ -1744,6 +1786,11 @@ function SidebarSubagents(props: {
                 >{` ${TOKEN_ICON} ${line().meta}`}</text>
               </Show>
             </box>
+            <Show when={modelLine()}>
+              {(metadata: Accessor<string>) => (
+                <text fg={props.theme.textMuted}>{`    ${metadata()}`}</text>
+              )}
+            </Show>
           </box>
         </Show>
       </box>
@@ -1924,7 +1971,11 @@ export async function hydratePreviousSubagents(
       collectParentTaskEvidenceByChildSessionID(messages, currentSessionID);
     let childHydrationFailed = false;
     const childMessageResults: Array<
-      SessionMessageSummary & { childID?: string; fetchFailed: boolean }
+      SessionMessageSummary & {
+        childID?: string;
+        fetchFailed: boolean;
+        model?: ReturnType<typeof extractLatestAssistantModel>;
+      }
     > = await Promise.all(
       children.map(async (child) => {
         const session = asRecord(child);
@@ -1955,6 +2006,7 @@ export async function hydratePreviousSubagents(
         return {
           childID,
           ...summarizeSessionMessages(childMessages),
+          model: extractLatestAssistantModel(childMessages),
           fetchFailed,
         };
       }),
@@ -2021,6 +2073,15 @@ export async function hydratePreviousSubagents(
           },
         };
         if (applySubagentEvent(next, fakeEvent)) changed = true;
+        if (childSummary?.model) {
+          changed =
+            setChildModel(
+              next,
+              session.id,
+              childSummary.model.model,
+              childSummary.model.updatedAt,
+            ) || changed;
+        }
 
         const resolvedStatus = resolveSessionStatusWithMessageSummary({
           status: sessionStatus ?? parentTaskEvidence?.status,

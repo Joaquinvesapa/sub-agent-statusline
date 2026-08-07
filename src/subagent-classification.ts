@@ -191,5 +191,6 @@ export function mergeProxyMetadataWithRealExecution(
     endedAt: real.endedAt,
     elapsedMs: real.elapsedMs,
     tokens: real.tokens,
+    model: real.model,
   };
 }
