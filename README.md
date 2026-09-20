@@ -28,6 +28,25 @@ The configuration usually lives at:
 
 Restart OpenCode after saving the file. The package is published as `opencode-subagent-statusline` and requires Node `>=22.13`.
 
+### Native OpenCode V2
+
+OpenCode 2.x loads plugins from `cli.json` with the native V2 entrypoint:
+
+```json
+{
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": ["opencode-subagent-statusline/tui-v2"]
+}
+```
+
+The configuration usually lives at:
+
+```txt
+~/.config/opencode/cli.json
+```
+
+The V1 entrypoint (`./tui`, instructions above) remains available and untouched for existing 1.x users. Both entries ship in the same package, so V1 and V2 installations coexist without changes to existing configuration files. See the OpenCode [V1 to V2 migration guide](https://opencode.ai/v2/docs/build/plugins/migrate-v1) for plugin migration details.
+
 ## Why Subagent Monitor?
 
 Delegating work is powerful, but child sessions can disappear into the background. Without a visible status surface, you have to guess:
@@ -185,6 +204,7 @@ Package entrypoints:
 ```txt
 opencode-subagent-statusline          -> TUI plugin
 opencode-subagent-statusline/tui      -> TUI plugin
+opencode-subagent-statusline/tui-v2   -> native OpenCode V2 TUI plugin
 opencode-subagent-statusline/runtime  -> experimental/diagnostic runtime mode
 ```
 

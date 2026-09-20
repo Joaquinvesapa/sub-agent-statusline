@@ -22,6 +22,10 @@
       "types": "./dist/tui.d.ts",
       "import": "./dist/tui.js"
     },
+    "./tui-v2": {
+      "types": "./dist/tui-v2.d.ts",
+      "import": "./dist/tui-v2.js"
+    },
     "./runtime": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
@@ -56,14 +60,21 @@
   "license": "MIT",
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.14.50 <2",
+    "@opencode/plugin": ">=2.0.0 <3",
     "@opentui/core": ">=0.4.0 <0.6",
     "@opentui/solid": ">=0.4.0 <0.6",
     "solid-js": ">=1.9.12 <2"
   },
+  "peerDependenciesMeta": {
+    "@opencode/plugin": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.15.11",
-    "@opentui/core": "^0.4.0",
-    "@opentui/solid": "^0.4.0",
+    "@opencode/plugin": "^2.0.7",
+    "@opentui/core": "^0.5.10",
+    "@opentui/solid": "^0.5.10",
     "@types/node": "^22.19.19",
     "@vitest/coverage-v8": "^4.1.7",
     "esbuild-plugin-solid": "^0.6.0",
