@@ -51,6 +51,10 @@ The sidebar shows:
 
 When subagent activity is active, the plugin also adds a compact summary to the home/footer area.
 
+## Built with Gentle AI
+
+Subagent Monitor was built with [Gentle AI](https://github.com/Gentleman-Programming/gentle-ai#built-with-gentle-ai).
+
 ## Gentle AI integration
 
 [Gentle AI](https://github.com/Gentleman-Programming/gentle-ai) offers Subagent Monitor as an optional OpenCode community plugin. Select and install it through Gentle AI to add the selected plugin to OpenCode's `tui.json`, or install this package directly using the configuration above.
