@@ -6,6 +6,7 @@ coverage/
 .pi/
 .pi-chain/
 .atl/
+.codegraph/
 
 *.log
 *.tmp

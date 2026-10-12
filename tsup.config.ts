@@ -20,13 +20,13 @@ export default defineConfig([
   },
   {
     entry: {
-      tui: "src/tui.tsx",
+      tui: "src/tui-plugin.ts",
     },
     format: ["esm"],
     target: "node22",
     dts: {
       entry: {
-        tui: "src/tui.tsx",
+        tui: "src/tui-plugin.ts",
       },
     },
     bundle: true,

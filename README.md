@@ -11,12 +11,14 @@ See delegated work without leaving OpenCode. **Subagent Monitor** is an MIT-lice
 
 ## Install
 
-Add the package to your OpenCode TUI configuration:
+> **This is the 1.x legacy line for OpenCode 1.x.** Plugin 2.0.0 and later support only OpenCode 2. On OpenCode 1, pin the version explicitly (`@1.3.1` or the `legacy` dist-tag); an unversioned entry follows `latest` and would install the OpenCode 2-only release.
+
+Add the pinned package to your OpenCode TUI configuration:
 
 ```json
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["opencode-subagent-statusline"]
+  "plugin": ["opencode-subagent-statusline@1.3.1"]
 }
 ```
 
