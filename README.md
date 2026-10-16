@@ -31,7 +31,7 @@ Add the package to the `plugins` array in `~/.config/opencode/cli.json`:
 }
 ```
 
-You can also run `opencode plugin add opencode-subagent-statusline`. In OpenCode 2, terminal plugins are configured in `cli.json`; entries in `tui.json` are not used.
+In OpenCode 2, terminal plugins are configured in `cli.json`; entries in `tui.json` are not used. Do not install it with `opencode plugin add`: that command also registers the package as a server plugin in `opencode.json`, where it fails because the package ships only a terminal plugin.
 
 ### OpenCode 1
 
@@ -45,6 +45,15 @@ Plugin 2.x does not load on OpenCode 1. Pin the last 1.x release in `~/.config/o
 ```
 
 `opencode-subagent-statusline@legacy` points to the same 1.x line. An exact pin does not update automatically.
+
+### Release lines and support
+
+| Line | npm dist-tag | Source branch | Support |
+| --- | --- | --- | --- |
+| 2.x | `latest` | `main` | Active development: features and fixes. |
+| 1.x | `legacy` | `v1` | Maintenance only: critical fixes (security, load failures). No new features. |
+
+Issues reported against 1.x that do not reproduce on 2.x may be closed as won't fix.
 
 ### Migrating from 1.x
 
@@ -82,12 +91,6 @@ Subagent Monitor was built with [Gentle AI](https://github.com/Gentleman-Program
 <a href="https://github.com/Gentleman-Programming/gentle-ai">
   <img width="220" src="https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png" alt="Built with Gentle-AI" />
 </a>
-
-## Gentle AI integration
-
-[Gentle AI](https://github.com/Gentleman-Programming/gentle-ai) offers Subagent Monitor as an optional OpenCode community plugin. Select and install it through Gentle AI, or install this package directly using the configuration above for your OpenCode version.
-
-This integration is optional. Subagent Monitor remains an independently installable OpenCode plugin.
 
 ## Screenshots
 
