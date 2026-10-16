@@ -9,3 +9,7 @@ minimumReleaseAgeExclude:
   - '@opentui/core-win32-x64@0.4.0'
   - '@opentui/core@0.4.0'
   - '@opentui/solid@0.4.0'
+# seroval is pulled in by solid-js; versions <=1.6.2 carry known advisories
+# (GHSA-p6vx-979v-rg4c, GHSA-jp82-f5mq-hwhp).
+overrides:
+  seroval: ">=1.6.3 <2"
