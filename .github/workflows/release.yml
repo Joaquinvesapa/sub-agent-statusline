@@ -56,6 +56,27 @@ jobs:
           fi
 
           version="${tag#v}"
+
+          # The release line is derived from the tag's major version, never chosen by hand:
+          # 1.x publishes from the v1 branch under the legacy dist-tag; 2.x and later
+          # publish from main under latest. This file must stay identical on main and v1
+          # because a tag push runs the workflow from the tagged commit.
+          major="${version%%.*}"
+          case "$major" in
+            0)
+              printf 'Refusing 0.x tag %s: there is no supported 0.x release line.\n' "$tag" >&2
+              exit 1
+              ;;
+            1)
+              release_branch=v1
+              dist_tag=legacy
+              ;;
+            *)
+              release_branch=main
+              dist_tag=latest
+              ;;
+          esac
+
           manifest_version="$(node -p "require('./package.json').version")"
           package_name="$(node -p "require('./package.json').name")"
           if [[ "$manifest_version" != "$version" ]]; then
@@ -64,18 +85,19 @@ jobs:
             exit 1
           fi
 
-          git fetch --force origin main --tags
+          git fetch --force origin "$release_branch" --tags
           if [[ "$(git cat-file -t "refs/tags/$tag")" != tag ]]; then
             printf 'Refusing lightweight tag %s. Release tags must be annotated.\n' "$tag" >&2
             exit 1
           fi
 
           tag_sha="$(git rev-parse "refs/tags/$tag^{commit}")"
-          main_sha="$(git rev-parse origin/main)"
-          if [[ "$tag_sha" != "$main_sha" ]]; then
-            printf 'Refusing stale tag %s at %s: current origin/main is %s.\n' \
-              "$tag" "$tag_sha" "$main_sha" >&2
-            printf 'Policy: a stable tag must target the current origin/main SHA when this workflow starts.\n' >&2
+          branch_sha="$(git rev-parse "origin/$release_branch")"
+          if [[ "$tag_sha" != "$branch_sha" ]]; then
+            printf 'Refusing stale tag %s at %s: current origin/%s is %s.\n' \
+              "$tag" "$tag_sha" "$release_branch" "$branch_sha" >&2
+            printf 'Policy: a %s.x tag must target the current origin/%s SHA when this workflow starts.\n' \
+              "$major" "$release_branch" >&2
             exit 1
           fi
 
@@ -98,7 +120,7 @@ jobs:
 
           ci_runs="$(gh api \
             "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$tag_sha&event=push&status=completed&per_page=100" \
-            --jq "[.workflow_runs[] | select(.head_sha == \"$tag_sha\") | select(.event == \"push\") | select(.head_branch == \"main\") | select(.status == \"completed\") | select(.conclusion == \"success\")] | sort_by(.run_started_at)")"
+            --jq "[.workflow_runs[] | select(.head_sha == \"$tag_sha\") | select(.event == \"push\") | select(.head_branch == \"$release_branch\") | select(.status == \"completed\") | select(.conclusion == \"success\")] | sort_by(.run_started_at)")"
           ci_run_id="$(node -e 'const runs = JSON.parse(process.argv[1]); process.stdout.write(String(runs.at(-1)?.id ?? ""));' "$ci_runs")"
           ci_run_url="$(node -e 'const runs = JSON.parse(process.argv[1]); process.stdout.write(runs.at(-1)?.html_url ?? "");' "$ci_runs")"
           if [[ -z "$ci_run_id" ]]; then
@@ -147,6 +169,8 @@ jobs:
             printf 'version=%s\n' "$version"
             printf 'package_name=%s\n' "$package_name"
             printf 'tag_sha=%s\n' "$tag_sha"
+            printf 'release_branch=%s\n' "$release_branch"
+            printf 'dist_tag=%s\n' "$dist_tag"
             printf 'ci_run_id=%s\n' "$ci_run_id"
             printf 'ci_run_url=%s\n' "$ci_run_url"
             printf 'tarball=%s\n' "$tarball"
@@ -155,15 +179,15 @@ jobs:
             printf 'github_release_url=%s\n' "$github_release_url"
           } >>"$GITHUB_OUTPUT"
 
-          printf 'Preflight passed: %s %s (SHA %s, CI %s, npm %s, GitHub Release %s).\n' \
-            "$tag" "$package_name" "$tag_sha" "$ci_run_id" "$npm_state" "$github_release_state"
+          printf 'Preflight passed: %s %s (branch %s, dist-tag %s, SHA %s, CI %s, npm %s, GitHub Release %s).\n' \
+            "$tag" "$package_name" "$release_branch" "$dist_tag" "$tag_sha" "$ci_run_id" "$npm_state" "$github_release_state"
 
       - name: Publish exact tagged package
         if: steps.preflight.outputs.npm_state == 'absent'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
-        run: npm publish "${{ steps.preflight.outputs.tarball }}" --access public --provenance
+        run: npm publish "${{ steps.preflight.outputs.tarball }}" --access public --provenance --tag "${{ steps.preflight.outputs.dist_tag }}"
 
       - name: Create GitHub Release after npm publication
         if: steps.preflight.outputs.github_release_state == 'absent'
@@ -174,7 +198,12 @@ jobs:
 
           tag="${{ steps.preflight.outputs.tag }}"
           tag_sha="${{ steps.preflight.outputs.tag_sha }}"
-          gh release create "$tag" --verify-tag --target "$tag_sha" --title "$tag" --generate-notes
+          # Only the latest line may become the repository's "Latest" GitHub Release.
+          mark_latest=false
+          if [[ "${{ steps.preflight.outputs.dist_tag }}" == latest ]]; then
+            mark_latest=true
+          fi
+          gh release create "$tag" --verify-tag --target "$tag_sha" --title "$tag" --generate-notes --latest="$mark_latest"
           printf 'Created GitHub Release notes for %s.\n' "$tag"
 
       - name: Verify GitHub Release after publication
