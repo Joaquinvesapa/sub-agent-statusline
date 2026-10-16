@@ -9,3 +9,7 @@ allowBuilds:
 # by default in v11, which makes the verify-deps-before-run check fail.
 onlyBuiltDependencies:
   - protobufjs
+# seroval is pulled in by solid-js; versions <=1.6.2 carry known advisories
+# (GHSA-p6vx-979v-rg4c, GHSA-jp82-f5mq-hwhp).
+overrides:
+  seroval: ">=1.6.3 <2"
