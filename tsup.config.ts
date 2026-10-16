@@ -20,13 +20,13 @@ export default defineConfig([
   },
   {
     entry: {
-      tui: "src/tui.tsx",
+      tui: "src/v2/index.ts",
     },
     format: ["esm"],
     target: "node22",
     dts: {
       entry: {
-        tui: "src/tui.tsx",
+        tui: "src/v2/index.ts",
       },
     },
     bundle: true,
@@ -34,8 +34,9 @@ export default defineConfig([
     clean: false,
     outDir: "dist",
     external: [
-      "@opencode-ai/plugin",
-      "@opencode-ai/plugin/tui",
+      "@opencode/plugin",
+      "@opencode/plugin/tui",
+      "@opencode/theme",
       "@opentui/core",
       "@opentui/solid",
       "solid-js",
