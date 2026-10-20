@@ -9,7 +9,7 @@
 
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
 import type { KeymapCommand } from "@opencode/plugin/tui/context";
-import type { ColorInput } from "@opentui/core";
+import type { ColorInput, MouseEvent } from "@opentui/core";
 import {
   For,
   Show,
@@ -85,6 +85,12 @@ const [lastIndex, setLastIndex] = createSignal(0);
 const [activeSessionID, setActiveSessionID] = createSignal<
   string | undefined
 >(undefined);
+// Pointer state is keyed by session ID too: rows are recreated on refresh, so
+// per-row signals would drop the hover highlight mid-hover.
+const [hoveredID, setHoveredID] = createSignal<string | undefined>(undefined);
+// The row a press started on; only a release on the same row opens it, so the
+// release never lands on the next screen (the V1 ghost-click fix, #73).
+let pressedID: string | undefined;
 
 let lastRefreshAt = 0;
 
@@ -483,27 +489,52 @@ function SidebarSubagents(props: { sessionID: string }) {
             const labelLines = () => wrapLabel(labelFor(item), LABEL_WIDTH, 2);
             const model = () => modelLine(item);
             const isCursor = () => focused() && cursorIndex() === i();
+            // Hover brightens the row; only the keyboard cursor gets the marker.
+            const isActive = () => isCursor() || hoveredID() === item.id;
             return (
-              <box flexDirection="column">
+              <box
+                flexDirection="column"
+                onMouseOver={() => setHoveredID(item.id)}
+                onMouseOut={() => {
+                  if (untrack(hoveredID) === item.id) setHoveredID(undefined);
+                  if (pressedID === item.id) pressedID = undefined;
+                }}
+                onMouseDown={(event: MouseEvent) => {
+                  event.stopPropagation();
+                  pressedID = item.id;
+                  setSelectedID(item.id);
+                  setLastIndex(i());
+                }}
+                onMouseUp={(event: MouseEvent) => {
+                  const opens = pressedID === item.id;
+                  pressedID = undefined;
+                  if (!opens) return;
+                  event.stopPropagation();
+                  context.ui.router.navigate({
+                    type: "session",
+                    sessionID: item.id,
+                  });
+                }}
+              >
                 <box flexDirection="row">
                   <text fg={isCursor() ? selected() : subdued()}>
                     {isCursor() ? CURSOR_MARKER : " "}
                   </text>
                   <text fg={fgFor(item)}>{`${statusMarker(item)} `}</text>
-                  <text fg={isCursor() ? headerColor() : fgFor(item)}>
+                  <text fg={isActive() ? headerColor() : fgFor(item)}>
                     {labelLines()[0] ?? ""}
                   </text>
                 </box>
                 <Show when={(labelLines()[1] ?? "") !== ""}>
-                  <text fg={isCursor() ? headerColor() : fgFor(item)}>
+                  <text fg={isActive() ? headerColor() : fgFor(item)}>
                     {`${LABEL_INDENT}${labelLines()[1]}`}
                   </text>
                 </Show>
-                <text fg={isCursor() ? headerColor() : subdued()}>
+                <text fg={isActive() ? headerColor() : subdued()}>
                   {metaFor(item, now())}
                 </text>
                 <Show when={model()}>
-                  <text fg={isCursor() ? headerColor() : subdued()}>
+                  <text fg={isActive() ? headerColor() : subdued()}>
                     {model()}
                   </text>
                 </Show>

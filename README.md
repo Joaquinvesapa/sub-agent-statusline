@@ -132,6 +132,14 @@ These entries work without focusing the list first:
 
 The entries are available on the session screen, where the sidebar is mounted.
 
+## Mouse
+
+- Click a subagent row to open its session.
+- Hovering a row highlights it; the `›` cursor marker stays on the keyboard selection.
+- Click the `Subagents` header to collapse or expand the list.
+
+Mouse support is on by default in OpenCode 2; no `cli.json` setting is needed. Terminals only deliver mouse events while their window has focus, so hover does not react over an unfocused window. Clicking still works, because the click focuses the window first.
+
 When a child session is opened from the sidebar, returning with OpenCode `Up` (`session_parent`) moves keyboard focus to the parent prompt so you can type immediately.
 
 <details>
