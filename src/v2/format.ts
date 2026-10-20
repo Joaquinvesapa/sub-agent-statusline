@@ -65,6 +65,8 @@ export function statusMarker(session: V2Session): string {
       return "[x]";
     case "stale":
       return "[~]";
+    case "unknown":
+      return "[-]";
     default:
       return "[ ]";
   }
@@ -87,15 +89,17 @@ export function labelFor(session: V2Session): string {
 }
 
 /**
- * A terminal outcome is recorded at `time.idle`, so prefer it for the end of a
- * finished run and fall back to `time.updated` only for legacy rows. Using
- * `time.updated` on its own rendered `00:00` for every finished V2 session,
- * because V2 rows write created/updated within milliseconds of each other.
+ * Only a running child counts up to `now`. Any other run ends at `time.idle`
+ * (where a terminal outcome is recorded), falling back to `time.updated` for
+ * legacy rows and stale runs. Using `time.updated` on its own rendered `00:00`
+ * for every finished V2 session, because V2 rows write created/updated within
+ * milliseconds of each other.
  */
 export function elapsedFor(session: V2Session, now: number): string {
-  const end = session.outcome
-    ? (session.time?.idle ?? session.time?.updated ?? now)
-    : now;
+  const end =
+    deriveStatus(session, now) === "running"
+      ? now
+      : (session.time?.idle ?? session.time?.updated ?? now);
   return formatDuration(end - (session.time?.created ?? now));
 }
 

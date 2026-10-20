@@ -99,6 +99,10 @@ describe("statusMarker", () => {
     });
     expect(statusMarker(stale)).toBe("[~]");
   });
+
+  it("marks a terminal child without outcome with the dash marker", () => {
+    expect(statusMarker(session({ live: "idle" }))).toBe("[-]");
+  });
 });
 
 describe("labelFor", () => {
@@ -148,6 +152,36 @@ describe("elapsedFor", () => {
       time: { created: 1_000, updated: 45_000 },
     });
     expect(elapsedFor(sessionRow, 99_999)).toBe("00:44");
+  });
+
+  // #109: a reopened session must show how long the child ran, frozen.
+  it("freezes at time.idle for an idle child without outcome", () => {
+    const sessionRow = session({
+      live: "idle",
+      time: { created: 1_000, updated: 1_010, idle: 62_000 },
+    });
+    expect(elapsedFor(sessionRow, 10_000_000)).toBe("01:01");
+  });
+
+  it("freezes at time.updated for an idle child without outcome or time.idle", () => {
+    const sessionRow = session({
+      live: "idle",
+      time: { created: 1_000, updated: 45_000 },
+    });
+    expect(elapsedFor(sessionRow, 10_000_000)).toBe("00:44");
+  });
+
+  it("freezes at the last activity for a stale child", () => {
+    const sessionRow = session({ time: { created: 1_000, updated: 45_000 } });
+    expect(elapsedFor(sessionRow, 10_000_000)).toBe("00:44");
+  });
+
+  it("keeps counting to now while the host reports the child running", () => {
+    const sessionRow = session({
+      live: "running",
+      time: { created: 1_000, updated: 2_000 },
+    });
+    expect(elapsedFor(sessionRow, 10_000_000)).toBe("02:46:39");
   });
 
   it("clamps clock skew to zero", () => {

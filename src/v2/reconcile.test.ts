@@ -60,11 +60,52 @@ describe("deriveStatus", () => {
   it("returns 'unknown' for an undefined session", () => {
     expect(deriveStatus(undefined, NOW)).toBe("unknown");
   });
+
+  // #109: reopening an old session must not invent stale/running children.
+  describe("with the host live status", () => {
+    const old = { created: 0, updated: NOW - STALE_RUNNING_MS - 60_000 };
+
+    it("trusts a running live status even after a long quiet period", () => {
+      expect(deriveStatus(session({ live: "running", time: old }), NOW)).toBe(
+        "running",
+      );
+    });
+
+    it("treats an idle child without outcome as terminal 'unknown', not stale", () => {
+      expect(deriveStatus(session({ live: "idle", time: old }), NOW)).toBe(
+        "unknown",
+      );
+    });
+
+    it("treats a fresh idle child without outcome as 'unknown', not running", () => {
+      expect(deriveStatus(session({ live: "idle" }), NOW)).toBe("unknown");
+    });
+
+    it("keeps a recorded outcome over the live status", () => {
+      expect(
+        deriveStatus(session({ live: "idle", outcome: "succeeded" }), NOW),
+      ).toBe("done");
+    });
+  });
+
+  it("treats a child with time.idle but no outcome as 'unknown' when live status is unavailable", () => {
+    expect(
+      deriveStatus(
+        session({ time: { created: 0, updated: NOW - 1_000, idle: NOW - 1_000 } }),
+        NOW,
+      ),
+    ).toBe("unknown");
+  });
 });
 
 describe("isBusy", () => {
-  it("considers running and stale sessions busy", () => {
+  it("considers running sessions busy", () => {
     expect(isBusy(session(), NOW)).toBe(true);
+    expect(isBusy(session({ live: "running" }), NOW)).toBe(true);
+  });
+
+  // #109: stale is a guess, it must not inflate the footer running count.
+  it("does not count stale or unknown sessions as busy", () => {
     expect(
       isBusy(
         session({
@@ -72,7 +113,8 @@ describe("isBusy", () => {
         }),
         NOW,
       ),
-    ).toBe(true);
+    ).toBe(false);
+    expect(isBusy(session({ live: "idle" }), NOW)).toBe(false);
   });
 
   it("considers terminal sessions not busy", () => {
@@ -133,6 +175,19 @@ describe("maxCandidates", () => {
       session({ id: "done2", outcome: "succeeded" }),
     ];
     expect(maxCandidates(items, true)).toEqual(items);
+  });
+
+  it("caps unknown (terminal without outcome) rows together with done rows", () => {
+    const unknown = Array.from({ length: 5 }, (_, index) =>
+      session({ id: `unknown${index}`, live: "idle" }),
+    );
+    const capped = maxCandidates([session({ id: "run1" }), ...unknown], false);
+    expect(capped.map((item) => item.id)).toEqual([
+      "run1",
+      "unknown0",
+      "unknown1",
+      "unknown2",
+    ]);
   });
 
   it("treats errors as active (never capped)", () => {
