@@ -9,6 +9,7 @@
 
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
 import type { KeymapCommand } from "@opencode/plugin/tui/context";
+import type { ColorInput } from "@opentui/core";
 import {
   For,
   Show,
@@ -16,6 +17,7 @@ import {
   createMemo,
   createSignal,
   onCleanup,
+  untrack,
 } from "solid-js";
 import type { Store } from "solid-js/store";
 import {
@@ -35,9 +37,16 @@ import {
   deriveStatus,
   isBusy,
   maxCandidates,
+  type V2LiveStatus,
   type V2Session,
 } from "./reconcile.js";
 import { PLUGIN_ID } from "./plugin-id.js";
+import {
+  moveSelection,
+  selectionIndex,
+  selectionTarget,
+} from "./selection.js";
+import { THEME_TOKENS, resolveColor } from "./theme.js";
 
 // The V2 `sidebar.content` slot publishes no width, so the row budget is a
 // constant sized to the sidebar's inner area (about 36 columns at the host
@@ -67,7 +76,10 @@ const state: MonitorState = { context: null, prefs: null, setPrefs: null };
 
 const [tick, setTick] = createSignal(0);
 const [focused, setFocused] = createSignal(false);
-const [cursor, setCursor] = createSignal(0);
+// The cursor follows a session ID; `lastIndex` is only the fallback position
+// when the selected session leaves the visible rows.
+const [selectedID, setSelectedID] = createSignal<string | undefined>(undefined);
+const [lastIndex, setLastIndex] = createSignal(0);
 const [activeSessionID, setActiveSessionID] = createSignal<
   string | undefined
 >(undefined);
@@ -91,6 +103,7 @@ function toV2Session(
         agent?: string;
       })
     | undefined,
+  live?: V2LiveStatus,
 ): V2Session | undefined {
   if (!session) return undefined;
   return {
@@ -99,9 +112,24 @@ function toV2Session(
     title: session.title,
     agent: session.agent,
     outcome: session.outcome,
+    live,
     tokens: session.tokens,
     time: session.time,
   };
+}
+
+// The host's live run state is the source of truth for outcome-less children
+// (legacy rows, killed runs); undefined when the host does not expose it.
+function liveStatus(
+  context: MonitorContext,
+  sessionID: string,
+): V2LiveStatus | undefined {
+  try {
+    const status = context.data.session.status?.(sessionID);
+    return status === "running" || status === "idle" ? status : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function childrenOf(sessionID: string | undefined): V2Session[] {
@@ -110,7 +138,9 @@ function childrenOf(sessionID: string | undefined): V2Session[] {
   if (!context || !sessionID) return [];
   try {
     return (context.data.session.family(sessionID) ?? [])
-      .map((id) => toV2Session(context.data.session.get(id)))
+      .map((id) =>
+        toV2Session(context.data.session.get(id), liveStatus(context, id)),
+      )
       .filter(
         (session): session is V2Session =>
           Boolean(session && session.parentID),
@@ -127,7 +157,9 @@ function allSubagents(): V2Session[] {
   if (!context) return [];
   try {
     return (context.data.session.list() ?? [])
-      .map((session) => toV2Session(session))
+      .map((session) =>
+        toV2Session(session, liveStatus(context, session.id)),
+      )
       .filter(
         (session): session is V2Session =>
           Boolean(session && session.parentID),
@@ -137,62 +169,45 @@ function allSubagents(): V2Session[] {
   }
 }
 
-// --- theme token resolution with safe fallbacks ---
-// Theme tokens resolve to RGBA objects ({ buffer: [r, g, b, a] }), not CSS
-// strings. Passing the raw object to `fg` degrades every colour to the
-// terminal default, so convert to hex and only then fall back.
-function colorToHex(value: unknown): string | undefined {
-  if (typeof value === "string") return value;
-  const record = value as { buffer?: unknown } | undefined;
-  const buffer = record?.buffer;
-  if (!Array.isArray(buffer)) return undefined;
-  const pair = (channel: unknown): string =>
-    Math.max(0, Math.min(255, Math.round(Number(channel) || 0)))
-      .toString(16)
-      .padStart(2, "0");
-  return `#${pair(buffer[0])}${pair(buffer[1])}${pair(buffer[2])}`;
+// --- theme colors ---
+// Read on every render (never cached at mount) so rows follow theme switches.
+function themeColor(name: keyof typeof THEME_TOKENS): ColorInput {
+  const token = THEME_TOKENS[name];
+  return resolveColor(state.context?.theme, token.path, token.fallback);
 }
 
-function resolveFg(
-  context: MonitorContext | null,
-  tokenPath: string,
-  fallback: string,
-): string {
-  try {
-    const value = tokenPath
-      .split(".")
-      .reduce<unknown>(
-        (acc, key) =>
-          (acc as Record<string, unknown> | undefined)?.[key],
-        context?.theme,
-      );
-    return colorToHex(value) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function fgFor(session: V2Session): string {
+function fgFor(session: V2Session): ColorInput {
   switch (deriveStatus(session)) {
     case "running":
-      return resolveFg(state.context, "text.feedback.warning.default", "#ffcb6b");
+      return themeColor("running");
     case "stale":
-      return resolveFg(state.context, "hue.purple.200", "#c792ea");
+      return themeColor("stale");
     case "error":
-      return resolveFg(state.context, "text.feedback.error.default", "#f07178");
+      return themeColor("error");
     case "done":
-      return resolveFg(state.context, "text.feedback.success.default", "#c3e88d");
+      return themeColor("done");
     default:
-      return resolveFg(state.context, "text.subdued", "#546e7a");
+      return themeColor("muted");
   }
 }
 
 // --- keymap layer (must be owned by a component, not by setup) ---
 
-function commandsFor(context: MonitorContext): KeymapCommand[] {
+function commandsFor(
+  context: MonitorContext,
+  rows: () => V2Session[],
+): KeymapCommand[] {
+  const move = (delta: number) => {
+    if (!focused()) return false;
+    const next = moveSelection(rows(), selectedID(), lastIndex(), delta);
+    if (!next) return;
+    setSelectedID(next.id);
+    setLastIndex(next.index);
+  };
+
   const openCursor = () => {
     if (!focused()) return false;
-    const target = childrenOf(activeSessionID())[cursor()];
+    const target = selectionTarget(rows(), selectedID(), lastIndex());
     if (!target) return;
     context.ui.router.navigate({ type: "session", sessionID: target.id });
   };
@@ -216,18 +231,12 @@ function commandsFor(context: MonitorContext): KeymapCommand[] {
     {
       id: `${PLUGIN_ID}.up`,
       bind: "k",
-      run: () => {
-        if (!focused()) return false;
-        setCursor((value) => Math.max(0, value - 1));
-      },
+      run: () => move(-1),
     },
     {
       id: `${PLUGIN_ID}.down`,
       bind: "j",
-      run: () => {
-        if (!focused()) return false;
-        setCursor((value) => value + 1);
-      },
+      run: () => move(1),
     },
     {
       id: `${PLUGIN_ID}.open`,
@@ -284,12 +293,15 @@ function commandsFor(context: MonitorContext): KeymapCommand[] {
 // `context.keymap.layer` resolves a Solid context owned by the calling
 // component, so it can only run inside a mounted component body — never inside
 // setup().
-function useKeymapLayer(context: MonitorContext): void {
+function useKeymapLayer(
+  context: MonitorContext,
+  rows: () => V2Session[],
+): void {
   try {
     context.keymap.layer(() => ({
       mode: "global",
       priority: 100,
-      commands: commandsFor(context),
+      commands: commandsFor(context, rows),
     }));
   } catch {
     // Shortcuts stay unavailable when the host has no keymap provider mounted yet.
@@ -301,11 +313,21 @@ function useKeymapLayer(context: MonitorContext): void {
 function SidebarSubagents(props: { sessionID: string }) {
   const context = usePlugin();
 
-  useKeymapLayer(context);
+  const items = createMemo(() => childrenOf(props.sessionID));
+  const visible = createMemo(() =>
+    maxCandidates(items(), state.prefs?.showCompleted ?? false, MAX_DONE_ROWS),
+  );
+
+  useKeymapLayer(context, visible);
 
   createEffect(() => {
     const sessionID = props.sessionID;
     if (!sessionID) return;
+    // A selection belongs to one parent session's list.
+    if (untrack(activeSessionID) !== sessionID) {
+      setSelectedID(undefined);
+      setLastIndex(0);
+    }
     setActiveSessionID(sessionID);
     context.data.session.sync(sessionID).catch(() => {});
     requestRefresh();
@@ -317,14 +339,19 @@ function SidebarSubagents(props: { sessionID: string }) {
     onCleanup(() => clearInterval(timer));
   });
 
-  const items = createMemo(() => childrenOf(props.sessionID));
-  const visible = createMemo(() =>
-    maxCandidates(items(), state.prefs?.showCompleted ?? false, MAX_DONE_ROWS),
+  const cursorIndex = createMemo(() =>
+    selectionIndex(visible(), selectedID(), lastIndex()),
   );
 
+  // Pin the selection to the row the marker is drawn on: remember its index as
+  // the fallback and, when the selected session left the list, adopt the
+  // nearest row so the marker stops jumping between subagents.
   createEffect(() => {
-    const length = visible().length;
-    if (length > 0 && cursor() >= length) setCursor(length - 1);
+    const index = cursorIndex();
+    const row = visible()[index];
+    if (!row) return;
+    if (index !== untrack(lastIndex)) setLastIndex(index);
+    if (row.id !== untrack(selectedID)) setSelectedID(row.id);
   });
 
   const counts = createMemo(() => {
@@ -343,20 +370,24 @@ function SidebarSubagents(props: { sessionID: string }) {
         case "stale":
           stale += 1;
           break;
-        default:
+        case "running":
           running += 1;
+          break;
+        default:
+          // `unknown`: finished without a recorded outcome; not counted.
+          break;
       }
     }
     return { running, stale, done, failed };
   });
 
-  const headerColor = resolveFg(context, "text.default", "#eeffff");
-  const subdued = resolveFg(context, "text.subdued", "#546e7a");
-  const selected = resolveFg(context, "text.action.primary.selected", "#82aaff");
-  const runningColor = resolveFg(context, "text.feedback.warning.default", "#ffcb6b");
-  const doneColor = resolveFg(context, "text.feedback.success.default", "#c3e88d");
-  const failedColor = resolveFg(context, "text.feedback.error.default", "#f07178");
-  const staleColor = resolveFg(context, "hue.purple.200", "#c792ea");
+  const headerColor = () => themeColor("header");
+  const subdued = () => themeColor("muted");
+  const selected = () => themeColor("selected");
+  const runningColor = () => themeColor("running");
+  const doneColor = () => themeColor("done");
+  const failedColor = () => themeColor("error");
+  const staleColor = () => themeColor("stale");
 
   // V1 parity: the header works as a clickable tab that collapses/expands the
   // subagent list without requiring keyboard focus (mirrors `onToggleExpanded`).
@@ -374,45 +405,45 @@ function SidebarSubagents(props: { sessionID: string }) {
   return (
     <box flexDirection="column" paddingX={1} paddingY={1}>
       <box flexDirection="row" onMouseDown={toggleExpanded}>
-        <text fg={headerColor}>
+        <text fg={headerColor()}>
           {`${state.prefs?.expanded ? SIDEBAR_ARROW_EXPANDED : SIDEBAR_ARROW_COLLAPSED} Subagents`}
         </text>
         <Show when={focused()}>
-          <text fg={selected}>{` ${FOCUS_INDICATOR}`}</text>
+          <text fg={selected()}>{` ${FOCUS_INDICATOR}`}</text>
         </Show>
       </box>
       <box flexDirection="row">
-        <text fg={runningColor}>{`● ${counts().running} run`}</text>
-        <text fg={subdued}>{" · "}</text>
-        <text fg={doneColor}>{`✓ ${counts().done} done`}</text>
-        <text fg={subdued}>{" · "}</text>
-        <text fg={failedColor}>{`✕ ${counts().failed} err`}</text>
+        <text fg={runningColor()}>{`● ${counts().running} run`}</text>
+        <text fg={subdued()}>{" · "}</text>
+        <text fg={doneColor()}>{`✓ ${counts().done} done`}</text>
+        <text fg={subdued()}>{" · "}</text>
+        <text fg={failedColor()}>{`✕ ${counts().failed} err`}</text>
       </box>
       <Show when={counts().stale > 0}>
-        <text fg={staleColor}>{`◐ ${counts().stale} stale`}</text>
+        <text fg={staleColor()}>{`◐ ${counts().stale} stale`}</text>
       </Show>
       <Show when={state.prefs?.expanded}>
         <For each={visible()}>
           {(item, i) => {
             const labelLines = () => wrapLabel(labelFor(item), LABEL_WIDTH, 2);
-            const isCursor = () => focused() && cursor() === i();
+            const isCursor = () => focused() && cursorIndex() === i();
             return (
               <box flexDirection="column">
                 <box flexDirection="row">
-                  <text fg={isCursor() ? selected : subdued}>
+                  <text fg={isCursor() ? selected() : subdued()}>
                     {isCursor() ? CURSOR_MARKER : " "}
                   </text>
                   <text fg={fgFor(item)}>{`${statusMarker(item)} `}</text>
-                  <text fg={isCursor() ? headerColor : fgFor(item)}>
+                  <text fg={isCursor() ? headerColor() : fgFor(item)}>
                     {labelLines()[0] ?? ""}
                   </text>
                 </box>
                 <Show when={(labelLines()[1] ?? "") !== ""}>
-                  <text fg={isCursor() ? headerColor : fgFor(item)}>
+                  <text fg={isCursor() ? headerColor() : fgFor(item)}>
                     {`${LABEL_INDENT}${labelLines()[1]}`}
                   </text>
                 </Show>
-                <text fg={isCursor() ? headerColor : subdued}>
+                <text fg={isCursor() ? headerColor() : subdued()}>
                   {metaFor(item, now())}
                 </text>
               </box>
@@ -421,7 +452,7 @@ function SidebarSubagents(props: { sessionID: string }) {
         </For>
       </Show>
       <Show when={focused()}>
-        <text fg={subdued}>{"j/k · enter · c · h/l · esc"}</text>
+        <text fg={subdued()}>{"j/k · enter · c · h/l · esc"}</text>
       </Show>
     </box>
   );
@@ -443,12 +474,13 @@ function FooterSummary() {
     return `↳ ${busyCount()} run · ${doneCount()} done · ${failedCount()} err`;
   });
 
-  const info = resolveFg(state.context, "text.feedback.warning.default", "#ffcb6b");
-  const error = resolveFg(state.context, "text.feedback.error.default", "#f07178");
-
   return (
     <Show when={summary() !== ""}>
-      <text fg={failedCount() > 0 ? error : info}>{summary()}</text>
+      <text
+        fg={failedCount() > 0 ? themeColor("error") : themeColor("running")}
+      >
+        {summary()}
+      </text>
     </Show>
   );
 }
