@@ -30,12 +30,22 @@ export interface V2SessionTokens {
   total?: number;
 }
 
+/** Model the session runs on, as recorded by the host. */
+export interface V2ModelRef {
+  id: string;
+  providerID: string;
+  variant?: string;
+}
+
 /** Structural slice of `Session.Info` the monitor reads. */
 export interface V2Session {
   id: string;
   parentID?: string;
   title?: string;
   agent?: string;
+  model?: V2ModelRef;
+  /** Where the session runs; scopes the host's model catalog lookup. */
+  location?: { directory: string };
   outcome?: V2Outcome;
   /** Host live status; undefined when the host does not expose it. */
   live?: V2LiveStatus;

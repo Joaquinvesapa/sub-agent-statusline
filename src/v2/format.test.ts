@@ -8,11 +8,13 @@ import {
   formatDuration,
   labelFor,
   metaFor,
+  modelLineFor,
   statusMarker,
   tokensFor,
   wrapLabel,
 } from "./format.js";
 import type { V2Session } from "./reconcile.js";
+import { textColumns } from "../text-width.js";
 
 function session(overrides: Partial<V2Session> = {}): V2Session {
   return {
@@ -207,6 +209,110 @@ describe("metaFor", () => {
     expect(metaFor(sessionRow, 99_999)).toBe(
       `${LABEL_INDENT}↳ ${CLOCK_ICON} 01:01 ${TOKEN_ICON} 1,000 tok`,
     );
+  });
+});
+
+describe("modelLineFor", () => {
+  const models = [
+    {
+      id: "anthropic/claude-opus",
+      modelID: "claude-opus",
+      providerID: "anthropic",
+      name: "Claude Opus",
+    },
+    {
+      id: "gpt-5",
+      modelID: "gpt-5",
+      providerID: "openai",
+      name: "GPT-5",
+    },
+  ];
+
+  it("is undefined without a recorded model", () => {
+    expect(modelLineFor(session(), models)).toBeUndefined();
+  });
+
+  it("shows the display name without a variant", () => {
+    const row = session({ model: { id: "gpt-5", providerID: "openai" } });
+    expect(modelLineFor(row, models)).toBe(`${LABEL_INDENT}GPT-5`);
+  });
+
+  it("appends the variant when present", () => {
+    const row = session({
+      model: { id: "gpt-5", providerID: "openai", variant: "high" },
+    });
+    expect(modelLineFor(row, models)).toBe(`${LABEL_INDENT}GPT-5 · high`);
+  });
+
+  it("matches the host model ID as well as the catalog ID", () => {
+    const row = session({
+      model: { id: "claude-opus", providerID: "anthropic" },
+    });
+    expect(modelLineFor(row, models)).toBe(`${LABEL_INDENT}Claude Opus`);
+  });
+
+  it("requires the provider to match", () => {
+    const row = session({ model: { id: "gpt-5", providerID: "azure" } });
+    expect(modelLineFor(row, models)).toBe(`${LABEL_INDENT}gpt-5`);
+  });
+
+  it("falls back to the raw model ID without a catalog", () => {
+    const row = session({
+      model: { id: "claude-opus", providerID: "anthropic", variant: "max" },
+    });
+    expect(modelLineFor(row, undefined)).toBe(
+      `${LABEL_INDENT}claude-opus · max`,
+    );
+  });
+
+  it("stays inside the sidebar row width", () => {
+    const row = session({
+      model: {
+        id: "a-very-long-model-identifier-that-overflows-the-row",
+        providerID: "custom",
+        variant: "high",
+      },
+    });
+    const line = modelLineFor(row, []) ?? "";
+    expect(line.startsWith(LABEL_INDENT)).toBe(true);
+    expect(line.length).toBeLessThanOrEqual(SIDEBAR_ROW_WIDTH);
+    expect(line.endsWith("…")).toBe(true);
+  });
+
+  it("falls back to the raw ID when the catalog name is blank", () => {
+    const row = session({ model: { id: "m1", providerID: "p" } });
+    expect(
+      modelLineFor(row, [{ id: "m1", providerID: "p", name: "  " }]),
+    ).toBe(`${LABEL_INDENT}m1`);
+  });
+
+  it("omits the separator for an empty variant", () => {
+    const row = session({ model: { id: "m1", providerID: "p", variant: "" } });
+    expect(modelLineFor(row, [])).toBe(`${LABEL_INDENT}m1`);
+  });
+
+  it("is undefined for an empty model ID", () => {
+    const row = session({ model: { id: "", providerID: "p" } });
+    expect(modelLineFor(row, [])).toBeUndefined();
+  });
+
+  it("picks the entry for the session's provider when IDs collide", () => {
+    const row = session({ model: { id: "x", providerID: "b" } });
+    const catalog = [
+      { id: "x", providerID: "a", name: "A-X" },
+      { id: "x", providerID: "b", name: "B-X" },
+    ];
+    expect(modelLineFor(row, catalog)).toBe(`${LABEL_INDENT}B-X`);
+  });
+
+  it("keeps wide-character names inside the row width", () => {
+    const row = session({ model: { id: "m", providerID: "p", variant: "高" } });
+    const line =
+      modelLineFor(row, [
+        { id: "m", providerID: "p", name: "模型名称模型名称模型名称模型名称模型名称" },
+      ]) ?? "";
+    expect(textColumns(line)).toBeLessThanOrEqual(SIDEBAR_ROW_WIDTH);
+    expect(line.endsWith("…")).toBe(true);
   });
 });
 

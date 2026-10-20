@@ -9,7 +9,7 @@
 
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
 import type { KeymapCommand } from "@opencode/plugin/tui/context";
-import type { ColorInput } from "@opentui/core";
+import type { ColorInput, MouseEvent } from "@opentui/core";
 import {
   For,
   Show,
@@ -29,8 +29,10 @@ import {
   SIDEBAR_ARROW_EXPANDED,
   labelFor,
   metaFor,
+  modelLineFor,
   statusMarker,
   wrapLabel,
+  type V2ModelEntry,
 } from "./format.js";
 import {
   byPriority,
@@ -83,6 +85,12 @@ const [lastIndex, setLastIndex] = createSignal(0);
 const [activeSessionID, setActiveSessionID] = createSignal<
   string | undefined
 >(undefined);
+// Pointer state is keyed by session ID too: rows are recreated on refresh, so
+// per-row signals would drop the hover highlight mid-hover.
+const [hoveredID, setHoveredID] = createSignal<string | undefined>(undefined);
+// The row a press started on; only a release on the same row opens it, so the
+// release never lands on the next screen (the V1 ghost-click fix, #73).
+let pressedID: string | undefined;
 
 let lastRefreshAt = 0;
 
@@ -111,6 +119,8 @@ function toV2Session(
     parentID: session.parentID,
     title: session.title,
     agent: session.agent,
+    model: session.model,
+    location: session.location,
     outcome: session.outcome,
     live,
     tokens: session.tokens,
@@ -169,6 +179,19 @@ function allSubagents(): V2Session[] {
   }
 }
 
+// Display names come from the host's cached model catalog for the session's
+// location; an unsynced catalog falls back to the raw model ID.
+function modelLine(session: V2Session): string | undefined {
+  if (!session.model) return undefined;
+  let models: readonly V2ModelEntry[] | undefined;
+  try {
+    models = state.context?.data.location.model.list(session.location);
+  } catch {
+    models = undefined;
+  }
+  return modelLineFor(session, models);
+}
+
 // --- theme colors ---
 // Read on every render (never cached at mount) so rows follow theme switches.
 function themeColor(name: keyof typeof THEME_TOKENS): ColorInput {
@@ -191,9 +214,66 @@ function fgFor(session: V2Session): ColorInput {
   }
 }
 
-// --- keymap layer (must be owned by a component, not by setup) ---
+// --- prefs ---
 
-function commandsFor(
+function mutatePrefs(mutation: (draft: Prefs) => void): void {
+  if (!state.setPrefs) return;
+  void state.setPrefs(mutation).catch(() => {});
+}
+
+// Shared by the header click and the palette, so both flip the same pref.
+function toggleExpanded(): void {
+  mutatePrefs((draft) => {
+    draft.expanded = !draft.expanded;
+  });
+}
+
+function toggleCompleted(): void {
+  mutatePrefs((draft) => {
+    draft.showCompleted = !draft.showCompleted;
+  });
+}
+
+// --- keymap layers (must be owned by a component, not by setup) ---
+
+// Reachable in every input mode, including while a dialog such as the command
+// palette is open, so the palette can list and run them.
+function globalCommands(): KeymapCommand[] {
+  return [
+    {
+      id: `${PLUGIN_ID}.focus`,
+      title: "Toggle subagent list focus",
+      group: "Subagents",
+      bind: "alt+b",
+      palette: true,
+      run: () => {
+        setFocused((value) => !value);
+      },
+    },
+    // Palette-only entries: no key binding, so they never capture typing and
+    // need no focus guard.
+    {
+      id: `${PLUGIN_ID}.palette.history`,
+      title: "Subagents: Toggle completed history",
+      group: "Subagents",
+      bind: false,
+      palette: true,
+      run: toggleCompleted,
+    },
+    {
+      id: `${PLUGIN_ID}.palette.monitor`,
+      title: "Subagents: Toggle monitor",
+      group: "Subagents",
+      bind: false,
+      palette: true,
+      run: toggleExpanded,
+    },
+  ];
+}
+
+// Bare-key list commands. Their layer runs in the host's base input mode only,
+// so a dialog (the palette pushes "modal") gets its own keys back.
+function listCommands(
   context: MonitorContext,
   rows: () => V2Session[],
 ): KeymapCommand[] {
@@ -212,22 +292,7 @@ function commandsFor(
     context.ui.router.navigate({ type: "session", sessionID: target.id });
   };
 
-  const mutatePrefs = (mutation: (draft: Prefs) => void): void => {
-    if (!state.setPrefs) return;
-    void state.setPrefs(mutation).catch(() => {});
-  };
-
   return [
-    {
-      id: `${PLUGIN_ID}.focus`,
-      title: "Toggle subagent list focus",
-      group: "Subagents",
-      bind: "alt+b",
-      palette: true,
-      run: () => {
-        setFocused((value) => !value);
-      },
-    },
     {
       id: `${PLUGIN_ID}.up`,
       bind: "k",
@@ -250,9 +315,7 @@ function commandsFor(
       bind: "c",
       run: () => {
         if (!focused()) return false;
-        mutatePrefs((draft) => {
-          draft.showCompleted = !draft.showCompleted;
-        });
+        toggleCompleted();
       },
     },
     {
@@ -301,7 +364,14 @@ function useKeymapLayer(
     context.keymap.layer(() => ({
       mode: "global",
       priority: 100,
-      commands: commandsFor(context, rows),
+      commands: globalCommands(),
+    }));
+    // No `mode`: the host defaults to its base mode, so the layer is inactive
+    // while any dialog, menu or autocomplete owns the keyboard.
+    context.keymap.layer(() => ({
+      enabled: focused,
+      priority: 100,
+      commands: listCommands(context, rows),
     }));
   } catch {
     // Shortcuts stay unavailable when the host has no keymap provider mounted yet.
@@ -389,21 +459,12 @@ function SidebarSubagents(props: { sessionID: string }) {
   const failedColor = () => themeColor("error");
   const staleColor = () => themeColor("stale");
 
-  // V1 parity: the header works as a clickable tab that collapses/expands the
-  // subagent list without requiring keyboard focus (mirrors `onToggleExpanded`).
-  const toggleExpanded = (): void => {
-    if (!state.setPrefs) return;
-    void state
-      .setPrefs((draft) => {
-        draft.expanded = !draft.expanded;
-      })
-      .catch(() => {});
-  };
-
   // Always rendered, even with zero subagents: the monitor keeps a visible
   // sidebar presence and the counters stay readable at a glance.
   return (
     <box flexDirection="column" paddingX={1} paddingY={1}>
+      {/* V1 parity: the header works as a clickable tab that collapses/expands
+          the list without requiring keyboard focus. */}
       <box flexDirection="row" onMouseDown={toggleExpanded}>
         <text fg={headerColor()}>
           {`${state.prefs?.expanded ? SIDEBAR_ARROW_EXPANDED : SIDEBAR_ARROW_COLLAPSED} Subagents`}
@@ -426,26 +487,57 @@ function SidebarSubagents(props: { sessionID: string }) {
         <For each={visible()}>
           {(item, i) => {
             const labelLines = () => wrapLabel(labelFor(item), LABEL_WIDTH, 2);
+            const model = () => modelLine(item);
             const isCursor = () => focused() && cursorIndex() === i();
+            // Hover brightens the row; only the keyboard cursor gets the marker.
+            const isActive = () => isCursor() || hoveredID() === item.id;
             return (
-              <box flexDirection="column">
+              <box
+                flexDirection="column"
+                onMouseOver={() => setHoveredID(item.id)}
+                onMouseOut={() => {
+                  if (untrack(hoveredID) === item.id) setHoveredID(undefined);
+                  if (pressedID === item.id) pressedID = undefined;
+                }}
+                onMouseDown={(event: MouseEvent) => {
+                  event.stopPropagation();
+                  pressedID = item.id;
+                  setSelectedID(item.id);
+                  setLastIndex(i());
+                }}
+                onMouseUp={(event: MouseEvent) => {
+                  const opens = pressedID === item.id;
+                  pressedID = undefined;
+                  if (!opens) return;
+                  event.stopPropagation();
+                  context.ui.router.navigate({
+                    type: "session",
+                    sessionID: item.id,
+                  });
+                }}
+              >
                 <box flexDirection="row">
                   <text fg={isCursor() ? selected() : subdued()}>
                     {isCursor() ? CURSOR_MARKER : " "}
                   </text>
                   <text fg={fgFor(item)}>{`${statusMarker(item)} `}</text>
-                  <text fg={isCursor() ? headerColor() : fgFor(item)}>
+                  <text fg={isActive() ? headerColor() : fgFor(item)}>
                     {labelLines()[0] ?? ""}
                   </text>
                 </box>
                 <Show when={(labelLines()[1] ?? "") !== ""}>
-                  <text fg={isCursor() ? headerColor() : fgFor(item)}>
+                  <text fg={isActive() ? headerColor() : fgFor(item)}>
                     {`${LABEL_INDENT}${labelLines()[1]}`}
                   </text>
                 </Show>
-                <text fg={isCursor() ? headerColor() : subdued()}>
+                <text fg={isActive() ? headerColor() : subdued()}>
                   {metaFor(item, now())}
                 </text>
+                <Show when={model()}>
+                  <text fg={isActive() ? headerColor() : subdued()}>
+                    {model()}
+                  </text>
+                </Show>
               </box>
             );
           }}
