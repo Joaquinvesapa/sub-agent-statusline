@@ -29,8 +29,10 @@ import {
   SIDEBAR_ARROW_EXPANDED,
   labelFor,
   metaFor,
+  modelLineFor,
   statusMarker,
   wrapLabel,
+  type V2ModelEntry,
 } from "./format.js";
 import {
   byPriority,
@@ -111,6 +113,8 @@ function toV2Session(
     parentID: session.parentID,
     title: session.title,
     agent: session.agent,
+    model: session.model,
+    location: session.location,
     outcome: session.outcome,
     live,
     tokens: session.tokens,
@@ -167,6 +171,19 @@ function allSubagents(): V2Session[] {
   } catch {
     return [];
   }
+}
+
+// Display names come from the host's cached model catalog for the session's
+// location; an unsynced catalog falls back to the raw model ID.
+function modelLine(session: V2Session): string | undefined {
+  if (!session.model) return undefined;
+  let models: readonly V2ModelEntry[] | undefined;
+  try {
+    models = state.context?.data.location.model.list(session.location);
+  } catch {
+    models = undefined;
+  }
+  return modelLineFor(session, models);
 }
 
 // --- theme colors ---
@@ -464,6 +481,7 @@ function SidebarSubagents(props: { sessionID: string }) {
         <For each={visible()}>
           {(item, i) => {
             const labelLines = () => wrapLabel(labelFor(item), LABEL_WIDTH, 2);
+            const model = () => modelLine(item);
             const isCursor = () => focused() && cursorIndex() === i();
             return (
               <box flexDirection="column">
@@ -484,6 +502,11 @@ function SidebarSubagents(props: { sessionID: string }) {
                 <text fg={isCursor() ? headerColor() : subdued()}>
                   {metaFor(item, now())}
                 </text>
+                <Show when={model()}>
+                  <text fg={isCursor() ? headerColor() : subdued()}>
+                    {model()}
+                  </text>
+                </Show>
               </box>
             );
           }}

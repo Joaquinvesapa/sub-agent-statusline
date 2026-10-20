@@ -80,7 +80,8 @@ The sidebar shows:
 - recent completed subagents;
 - failed subagents;
 - elapsed time;
-- token/context usage when available.
+- token/context usage when available;
+- the model each subagent runs on, with its variant when one is set (for example `Claude Opus · high`).
 
 When subagent activity is active, the plugin also adds a compact summary to the home/footer area.
 

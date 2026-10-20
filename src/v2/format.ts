@@ -111,6 +111,35 @@ export function metaFor(session: V2Session, now: number): string {
   return `${LABEL_INDENT}${parts.join(" ")}`;
 }
 
+/** Structural slice of the host's `ModelInfo` catalog entry. */
+export interface V2ModelEntry {
+  id: string;
+  modelID?: string;
+  providerID: string;
+  name?: string;
+}
+
+/**
+ * Model line under the meta line: "<name> · <variant>", the variant only when
+ * recorded. The name comes from the host's model catalog (matched on provider
+ * and either catalog or model ID), falling back to the raw model ID.
+ */
+export function modelLineFor(
+  session: V2Session,
+  models: readonly V2ModelEntry[] | undefined,
+): string | undefined {
+  const model = session.model;
+  if (!model?.id) return undefined;
+  const entry = models?.find(
+    (candidate) =>
+      candidate.providerID === model.providerID &&
+      (candidate.id === model.id || candidate.modelID === model.id),
+  );
+  const name = entry?.name?.trim() || model.id;
+  const text = model.variant ? `${name} · ${model.variant}` : name;
+  return `${LABEL_INDENT}${ellipsize(text, LABEL_WIDTH)}`;
+}
+
 export function ellipsize(value: string, width: number): string {
   return truncateToColumns(value, width);
 }
