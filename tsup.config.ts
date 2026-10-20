@@ -21,12 +21,14 @@ export default defineConfig([
   {
     entry: {
       tui: "src/v2/index.ts",
+      server: "src/v2/server.ts",
     },
     format: ["esm"],
     target: "node22",
     dts: {
       entry: {
         tui: "src/v2/index.ts",
+        server: "src/v2/server.ts",
       },
     },
     bundle: true,

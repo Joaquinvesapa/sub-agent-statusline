@@ -37,8 +37,7 @@ import {
   maxCandidates,
   type V2Session,
 } from "./reconcile.js";
-
-const PLUGIN_ID = "subagent-monitor";
+import { PLUGIN_ID } from "./plugin-id.js";
 
 // The V2 `sidebar.content` slot publishes no width, so the row budget is a
 // constant sized to the sidebar's inner area (about 36 columns at the host

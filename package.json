@@ -18,6 +18,10 @@
       "types": "./dist/tui.d.ts",
       "import": "./dist/tui.js"
     },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
     "./tui": {
       "types": "./dist/tui.d.ts",
       "import": "./dist/tui.js"
