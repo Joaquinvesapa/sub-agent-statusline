@@ -191,9 +191,66 @@ function fgFor(session: V2Session): ColorInput {
   }
 }
 
-// --- keymap layer (must be owned by a component, not by setup) ---
+// --- prefs ---
 
-function commandsFor(
+function mutatePrefs(mutation: (draft: Prefs) => void): void {
+  if (!state.setPrefs) return;
+  void state.setPrefs(mutation).catch(() => {});
+}
+
+// Shared by the header click and the palette, so both flip the same pref.
+function toggleExpanded(): void {
+  mutatePrefs((draft) => {
+    draft.expanded = !draft.expanded;
+  });
+}
+
+function toggleCompleted(): void {
+  mutatePrefs((draft) => {
+    draft.showCompleted = !draft.showCompleted;
+  });
+}
+
+// --- keymap layers (must be owned by a component, not by setup) ---
+
+// Reachable in every input mode, including while a dialog such as the command
+// palette is open, so the palette can list and run them.
+function globalCommands(): KeymapCommand[] {
+  return [
+    {
+      id: `${PLUGIN_ID}.focus`,
+      title: "Toggle subagent list focus",
+      group: "Subagents",
+      bind: "alt+b",
+      palette: true,
+      run: () => {
+        setFocused((value) => !value);
+      },
+    },
+    // Palette-only entries: no key binding, so they never capture typing and
+    // need no focus guard.
+    {
+      id: `${PLUGIN_ID}.palette.history`,
+      title: "Subagents: Toggle completed history",
+      group: "Subagents",
+      bind: false,
+      palette: true,
+      run: toggleCompleted,
+    },
+    {
+      id: `${PLUGIN_ID}.palette.monitor`,
+      title: "Subagents: Toggle monitor",
+      group: "Subagents",
+      bind: false,
+      palette: true,
+      run: toggleExpanded,
+    },
+  ];
+}
+
+// Bare-key list commands. Their layer runs in the host's base input mode only,
+// so a dialog (the palette pushes "modal") gets its own keys back.
+function listCommands(
   context: MonitorContext,
   rows: () => V2Session[],
 ): KeymapCommand[] {
@@ -212,22 +269,7 @@ function commandsFor(
     context.ui.router.navigate({ type: "session", sessionID: target.id });
   };
 
-  const mutatePrefs = (mutation: (draft: Prefs) => void): void => {
-    if (!state.setPrefs) return;
-    void state.setPrefs(mutation).catch(() => {});
-  };
-
   return [
-    {
-      id: `${PLUGIN_ID}.focus`,
-      title: "Toggle subagent list focus",
-      group: "Subagents",
-      bind: "alt+b",
-      palette: true,
-      run: () => {
-        setFocused((value) => !value);
-      },
-    },
     {
       id: `${PLUGIN_ID}.up`,
       bind: "k",
@@ -250,9 +292,7 @@ function commandsFor(
       bind: "c",
       run: () => {
         if (!focused()) return false;
-        mutatePrefs((draft) => {
-          draft.showCompleted = !draft.showCompleted;
-        });
+        toggleCompleted();
       },
     },
     {
@@ -301,7 +341,14 @@ function useKeymapLayer(
     context.keymap.layer(() => ({
       mode: "global",
       priority: 100,
-      commands: commandsFor(context, rows),
+      commands: globalCommands(),
+    }));
+    // No `mode`: the host defaults to its base mode, so the layer is inactive
+    // while any dialog, menu or autocomplete owns the keyboard.
+    context.keymap.layer(() => ({
+      enabled: focused,
+      priority: 100,
+      commands: listCommands(context, rows),
     }));
   } catch {
     // Shortcuts stay unavailable when the host has no keymap provider mounted yet.
@@ -389,21 +436,12 @@ function SidebarSubagents(props: { sessionID: string }) {
   const failedColor = () => themeColor("error");
   const staleColor = () => themeColor("stale");
 
-  // V1 parity: the header works as a clickable tab that collapses/expands the
-  // subagent list without requiring keyboard focus (mirrors `onToggleExpanded`).
-  const toggleExpanded = (): void => {
-    if (!state.setPrefs) return;
-    void state
-      .setPrefs((draft) => {
-        draft.expanded = !draft.expanded;
-      })
-      .catch(() => {});
-  };
-
   // Always rendered, even with zero subagents: the monitor keeps a visible
   // sidebar presence and the counters stay readable at a glance.
   return (
     <box flexDirection="column" paddingX={1} paddingY={1}>
+      {/* V1 parity: the header works as a clickable tab that collapses/expands
+          the list without requiring keyboard focus. */}
       <box flexDirection="row" onMouseDown={toggleExpanded}>
         <text fg={headerColor()}>
           {`${state.prefs?.expanded ? SIDEBAR_ARROW_EXPANDED : SIDEBAR_ARROW_COLLAPSED} Subagents`}

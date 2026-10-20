@@ -104,7 +104,7 @@ Focused sidebar view:
 
 ## Keyboard navigation
 
-Run `Subagents: Focus sidebar list` from the OpenCode command palette, or press `Alt+B`, to focus the subagent sidebar list without using the mouse. List navigation shortcuts are handled only while the sidebar list is focused.
+Run `Toggle subagent list focus` from the OpenCode command palette, or press `Alt+B`, to focus the subagent sidebar list without using the mouse. List navigation shortcuts are handled only while the sidebar list is focused, and never while a dialog such as the command palette is open.
 
 | Shortcut | Action |
 | --- | --- |
@@ -119,7 +119,17 @@ Run `Subagents: Focus sidebar list` from the OpenCode command palette, or press 
 
 Opening a selected session is a no-op when there is no visible or navigable subagent.
 
-Click `Σ` in the sidebar aggregate row to toggle completed history with the mouse. The toggle is not persisted; it resets when OpenCode or the plugin is reloaded. Completed history is bounded retained history, not a full database: terminal rows are kept for up to 3 days with a 1,500-row cap, and rows already pruned from state are not restored.
+## Command palette
+
+These entries work without focusing the list first:
+
+| Palette entry | Action |
+| --- | --- |
+| `Toggle subagent list focus` | Same as `Alt+B`. |
+| `Subagents: Toggle completed history` | Show or hide completed subagents beyond the most recent ones. |
+| `Subagents: Toggle monitor` | Collapse or expand the subagent list, like clicking its header. |
+
+The entries are available on the session screen, where the sidebar is mounted.
 
 When a child session is opened from the sidebar, returning with OpenCode `Up` (`session_parent`) moves keyboard focus to the parent prompt so you can type immediately.
 
