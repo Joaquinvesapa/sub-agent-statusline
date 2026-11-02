@@ -1,5 +1,25 @@
 # Interfaz TUI
 
+## Navegación por teclado en OpenCode 2
+
+En el plugin 2.x (`main`), presioná `<leader>z` (tu leader configurado en OpenCode, seguido de `z`) o ejecutá `Toggle subagent list focus` desde la paleta de comandos.
+
+| Atajo | Acción con la lista enfocada |
+| --- | --- |
+| `j` / `k` | Seleccionar el siguiente / anterior subagente. |
+| `Enter` | Abrir la sesión seleccionada. |
+| `h` / `l` | Colapsar / expandir el monitor. |
+| `c` | Alternar el historial de completados. |
+| `Esc` | Devolver el foco al prompt. |
+
+La capa de teclas de la lista solo está habilitada cuando la lista tiene foco y el host está en modo base, no dentro de diálogos. El plugin no registra `Alt+B`, `Alt+Left` (`Option+Left` en macOS) ni `Ctrl+Left`, para preservar la navegación por palabras del prompt. Los otros dos comandos de la paleta siguen disponibles sin enfocar la lista.
+
+La prueba de regresión `src/v2/tui.test.ts` verifica el atajo registrado, la activación de la capa según el foco y las acciones de la lista a través del entrypoint del plugin. Para probar manualmente, escribí palabras y las letras `jkh lc` en el prompt, probá navegar por palabras y usar `Enter`; después probá `<leader>z`, la navegación de la lista y `Esc`.
+
+## Referencia legacy de OpenCode 1
+
+Las secciones restantes describen la implementación legacy de la rama `v1`, incluido su atajo anterior `Alt+B` y sus APIs. Para los atajos actuales de 2.x, usá la sección anterior y el [README](../../README.md#keyboard-navigation).
+
 La interfaz principal del plugin es una sección en la sidebar de OpenCode. Su objetivo es mostrar actividad de subagentes sin obligarte a salir del flujo de trabajo actual.
 
 ## Superficies visuales

@@ -180,6 +180,8 @@ Missing token data does not necessarily mean the plugin is broken.
 
 ## `Alt+B` does not focus the list
 
+On plugin 2.x the shortcut is `<leader>z`, not `Alt+B`: OpenCode 2 uses `Alt+B` for prompt word navigation (macOS `Option+Left`). The checks below apply to the legacy 1.x line and, with `<leader>z`, to 2.x.
+
 Verify:
 
 1. the plugin loaded;

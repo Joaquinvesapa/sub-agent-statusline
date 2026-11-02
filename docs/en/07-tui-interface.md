@@ -1,5 +1,25 @@
 # TUI interface
 
+## OpenCode 2 keyboard navigation
+
+On plugin 2.x (`main`), press `<leader>z` (your configured OpenCode leader, then `z`) or run `Toggle subagent list focus` from the command palette.
+
+| Shortcut | Action while the list is focused |
+| --- | --- |
+| `j` / `k` | Select the next / previous subagent. |
+| `Enter` | Open the selected session. |
+| `h` / `l` | Collapse / expand the monitor. |
+| `c` | Toggle completed history. |
+| `Esc` | Return focus to the prompt. |
+
+The list keymap layer is enabled only while the list is focused and only in the host's base input mode, not inside dialogs. `Alt+B`, `Alt+Left` (macOS `Option+Left`), and `Ctrl+Left` are not bound by the plugin, preserving prompt word navigation. The two other palette commands remain available without list focus.
+
+Regression coverage: `src/v2/tui.test.ts` checks the registered shortcut, focus-gated layer, and list actions through the plugin entrypoint. For a manual smoke test, type words and the letters `jkh lc` in the prompt, try word navigation and `Enter`, then use `<leader>z`, list navigation, and `Esc`.
+
+## Legacy OpenCode 1 reference
+
+The remaining sections describe the legacy implementation on branch `v1`, including its old `Alt+B` shortcut and APIs. For current 2.x shortcuts, use the section above and [README](../../README.md#keyboard-navigation).
+
 The plugin's main interface is a section in the OpenCode sidebar. Its goal is to show subagent activity without pulling you out of your current workflow.
 
 ## Visual surfaces

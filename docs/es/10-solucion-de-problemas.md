@@ -182,6 +182,8 @@ Pero la ausencia de tokens no significa necesariamente que el plugin esté roto.
 
 ## `Alt+B` no enfoca la lista
 
+En el plugin 2.x el atajo es `<leader>z`, no `Alt+B`: OpenCode 2 usa `Alt+B` para navegar por palabras en el prompt (`Option+Left` en macOS). Las verificaciones siguientes aplican a la línea legacy 1.x y, con `<leader>z`, a 2.x.
+
 Verificá:
 
 1. que el plugin cargó;

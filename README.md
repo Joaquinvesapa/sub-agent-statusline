@@ -105,18 +105,20 @@ Focused sidebar view:
 
 ## Keyboard navigation
 
-Run `Toggle subagent list focus` from the OpenCode command palette, or press `Alt+B`, to focus the subagent sidebar list without using the mouse. List navigation shortcuts are handled only while the sidebar list is focused, and never while a dialog such as the command palette is open.
+Run `Toggle subagent list focus` from the OpenCode command palette, or press `<leader>z`, to focus the subagent sidebar list without using the mouse. List navigation shortcuts are handled only while the sidebar list is focused, and never while a dialog such as the command palette is open.
 
 | Shortcut | Action |
 | --- | --- |
-| `Alt+B` | Toggle focus between the subagent sidebar list and the prompt. |
-| `j` / `ArrowDown` | Move selection to the next visible subagent. |
-| `k` / `ArrowUp` | Move selection to the previous visible subagent. |
+| `<leader>z` | Toggle focus between the subagent sidebar list and the prompt. |
+| `j` | Move selection to the next visible subagent. |
+| `k` | Move selection to the previous visible subagent. |
 | `Enter` | Open the selected subagent session. |
 | `c` | Toggle retained completed history in the sidebar. |
-| `h` / `ArrowLeft` | Collapse the subagent section. |
-| `l` / `ArrowRight` | Expand the subagent section. |
+| `h` | Collapse the subagent section. |
+| `l` | Expand the subagent section. |
 | `Esc` | Leave list focus mode and return to the prompt. |
+
+`<leader>z` means your configured OpenCode leader followed by `z`. `Alt+B`, `Alt+Left` (macOS `Option+Left`), and `Ctrl+Left` remain available for prompt word navigation. The list layer is disabled while the prompt has focus; its bare keys do not intercept prompt typing.
 
 Opening a selected session is a no-op when there is no visible or navigable subagent.
 
@@ -126,7 +128,7 @@ These entries work without focusing the list first:
 
 | Palette entry | Action |
 | --- | --- |
-| `Toggle subagent list focus` | Same as `Alt+B`. |
+| `Toggle subagent list focus` | Same as `<leader>z`. |
 | `Subagents: Toggle completed history` | Show or hide completed subagents beyond the most recent ones. |
 | `Subagents: Toggle monitor` | Collapse or expand the subagent list, like clicking its header. |
 
@@ -151,7 +153,7 @@ For 2.x releases, the stable user-facing contract is:
 - OpenCode 2 TUI plugin entrypoints: `opencode-subagent-statusline` and `opencode-subagent-statusline/tui`;
 - OpenCode 2 `cli.json` plugin configuration;
 - visible sidebar and home/footer behavior;
-- command palette entry, `Alt+B`, and focused-list navigation;
+- command palette entry, `<leader>z`, and focused-list navigation;
 - local privacy and persistence behavior described in this README;
 - Node, peer dependency, and install contract declared in `package.json`.
 

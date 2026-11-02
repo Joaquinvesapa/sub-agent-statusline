@@ -105,6 +105,8 @@ For details, see [State model and counters](./05-state-model-and-counters.md).
 
 ## Basic navigation
 
+On plugin 2.x (OpenCode 2), press `<leader>z` (your configured OpenCode leader, `ctrl+x` by default, then `z`) or run `Toggle subagent list focus` from the command palette. List keys are `j`/`k`, `Enter`, `h`/`l`, `c`, and `Esc`; see [TUI interface](./07-tui-interface.md#opencode-2-keyboard-navigation). The table below describes the legacy 1.x line (branch `v1`).
+
 The sidebar supports keyboard navigation while the list is focused.
 
 | Shortcut           | Action                                                    |

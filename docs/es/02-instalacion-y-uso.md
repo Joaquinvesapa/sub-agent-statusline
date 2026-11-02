@@ -105,6 +105,8 @@ Para más detalle, ver [Modelo de estado y contadores](./05-modelo-de-estado-y-c
 
 ## Navegación básica
 
+En el plugin 2.x (OpenCode 2), presioná `<leader>z` (tu leader configurado en OpenCode, `ctrl+x` por defecto, seguido de `z`) o ejecutá `Toggle subagent list focus` desde la paleta de comandos. Las teclas de la lista son `j`/`k`, `Enter`, `h`/`l`, `c` y `Esc`; ver [Interfaz TUI](./07-interfaz-tui.md#navegación-por-teclado-en-opencode-2). La tabla siguiente describe la línea legacy 1.x (rama `v1`).
+
 La sidebar soporta navegación por teclado cuando la lista está enfocada.
 
 | Atajo              | Acción                                                    |

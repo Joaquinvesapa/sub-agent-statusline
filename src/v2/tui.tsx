@@ -244,7 +244,8 @@ function globalCommands(): KeymapCommand[] {
       id: `${PLUGIN_ID}.focus`,
       title: "Toggle subagent list focus",
       group: "Subagents",
-      bind: "alt+b",
+      // Alt+B is prompt word navigation (including Option+Left on macOS).
+      bind: "<leader>z",
       palette: true,
       run: () => {
         setFocused((value) => !value);
