@@ -60,8 +60,8 @@
   "license": "MIT",
   "peerDependencies": {
     "@opencode/plugin": ">=2.0.0 <3",
-    "@opentui/core": ">=0.5.0 <0.7",
-    "@opentui/solid": ">=0.5.0 <0.7",
+    "@opentui/core": ">=0.5.0 <0.9",
+    "@opentui/solid": ">=0.5.0 <0.9",
     "solid-js": ">=1.9.12 <2"
   },
   "devDependencies": {
