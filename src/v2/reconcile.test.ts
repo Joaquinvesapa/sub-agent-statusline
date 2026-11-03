@@ -4,7 +4,8 @@ import {
   byPriority,
   deriveStatus,
   isBusy,
-  maxCandidates,
+  groupSubagents,
+  visibleSubagents,
   type V2Session,
 } from "./reconcile.js";
 
@@ -146,56 +147,67 @@ describe("byPriority", () => {
   });
 });
 
-describe("maxCandidates", () => {
-  it("keeps every active candidate and caps done rows at three", () => {
-    const active = [
-      session({ id: "run1" }),
-      session({ id: "stale1", time: { created: 0, updated: 1 } }),
-    ];
-    const done = Array.from({ length: 5 }, (_, index) =>
-      session({ id: `done${index}`, outcome: "succeeded" }),
-    );
+describe("grouped sidebar", () => {
+  const items = () => [
+    session({ id: "run", live: "running" }),
+    session({ id: "stale", time: { updated: 0 } }),
+    session({ id: "done", outcome: "succeeded" }),
+    session({ id: "unknown", live: "idle" }),
+    session({ id: "failed", outcome: "failed" }),
+    session({ id: "interrupted", outcome: "interrupted" }),
+  ];
+  const ids = (rows: V2Session[]) => rows.map((row) => row.id);
 
-    const capped = maxCandidates([...active, ...done], false);
-    expect(capped).toHaveLength(active.length + 3);
-    expect(capped.slice(0, active.length).map((item) => item.id)).toEqual(
-      active.map((item) => item.id),
-    );
-    expect(capped.slice(-3).map((item) => item.id)).toEqual([
-      "done0",
-      "done1",
-      "done2",
-    ]);
+  it("places every state in exactly one group, without treating unknown as success", () => {
+    const groups = groupSubagents(items(), NOW);
+    expect(ids(groups.running)).toEqual(["run"]);
+    expect(ids(groups.stale)).toEqual(["stale"]);
+    expect(ids(groups.history)).toEqual(["done", "unknown"]);
+    expect(ids(groups.errors)).toEqual(["failed", "interrupted"]);
+    expect(Object.values(groups).flat()).toHaveLength(items().length);
   });
 
-  it("returns every candidate when completed history is shown", () => {
-    const items = [
-      session({ id: "run1" }),
-      session({ id: "done1", outcome: "succeeded" }),
-      session({ id: "done2", outcome: "succeeded" }),
-    ];
-    expect(maxCandidates(items, true)).toEqual(items);
+  it("handles an empty family", () => {
+    expect(groupSubagents([], NOW)).toEqual({ running: [], stale: [], history: [], errors: [] });
   });
 
-  it("caps unknown (terminal without outcome) rows together with done rows", () => {
-    const unknown = Array.from({ length: 5 }, (_, index) =>
-      session({ id: `unknown${index}`, live: "idle" }),
-    );
-    const capped = maxCandidates([session({ id: "run1" }), ...unknown], false);
-    expect(capped.map((item) => item.id)).toEqual([
-      "run1",
-      "unknown0",
-      "unknown1",
-      "unknown2",
-    ]);
+  it.each([
+    [false, false, ["run", "stale"]],
+    [true, false, ["run", "stale", "done", "unknown"]],
+    [false, true, ["run", "stale", "failed", "interrupted"]],
+    [true, true, ["run", "stale", "done", "unknown", "failed", "interrupted"]],
+  ])("independently expands history=%s and errors=%s", (showCompleted, showErrors, expected) => {
+    const groups = groupSubagents(items(), NOW);
+    expect(ids(visibleSubagents(groups, { expanded: true, showCompleted, showErrors }))).toEqual(expected);
+    expect(groups.history).toHaveLength(2);
+    expect(groups.errors).toHaveLength(2);
   });
 
-  it("treats errors as active (never capped)", () => {
-    const errors = [
-      session({ id: "err1", outcome: "failed" }),
-      session({ id: "err2", outcome: "interrupted" }),
-    ];
-    const capped = maxCandidates(errors, false);
-    expect(capped.map((item) => item.id)).toEqual(["err1", "err2"]);
+  it("preserves old history preferences and defaults missing error preference to hidden", () => {
+    const groups = groupSubagents(items(), NOW);
+    expect(ids(visibleSubagents(groups, { expanded: true, showCompleted: true })))
+      .toEqual(["run", "stale", "done", "unknown"]);
+  });
+
+  it("exposes no keyboard targets when the entire monitor is collapsed", () => {
+    expect(visibleSubagents(groupSubagents(items(), NOW), {
+      expanded: false, showCompleted: true, showErrors: true,
+    })).toEqual([]);
+  });
+
+  it.each(["succeeded", "failed", "interrupted"] as const)("moves a finished run to its %s group", (outcome) => {
+    const child = session({ live: "running" });
+    expect(groupSubagents([child], NOW).running).toHaveLength(1);
+    const groups = groupSubagents([{ ...child, live: "idle", outcome }], NOW);
+    expect(groups.running).toEqual([]);
+    expect(outcome === "succeeded" ? groups.history : groups.errors).toHaveLength(1);
+    expect(visibleSubagents(groups, { expanded: true, showCompleted: false })).toEqual([]);
+  });
+
+  it("does not cap history when explicitly opened", () => {
+    const children = Array.from({ length: 8 }, (_, i) => session({ id: `done${i}`, outcome: "succeeded" }));
+    expect(visibleSubagents(groupSubagents(children, NOW), {
+      expanded: true, showCompleted: true,
+    })).toHaveLength(8);
   });
 });

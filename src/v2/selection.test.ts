@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { moveSelection, selectionIndex, selectionTarget } from "./selection.js";
+import { groupSubagents, visibleSubagents, type V2Session } from "./reconcile.js";
 
 const rows = (...ids: string[]) => ids.map((id) => ({ id }));
 
@@ -60,5 +61,29 @@ describe("selectionTarget", () => {
 
   it("returns undefined for an empty list", () => {
     expect(selectionTarget([], "a", 0)).toBeUndefined();
+  });
+});
+
+describe("selection across section changes", () => {
+  const children: V2Session[] = [
+    { id: "run", live: "running" },
+    { id: "done", outcome: "succeeded" },
+    { id: "error", outcome: "failed" },
+  ];
+
+  it("moves the cursor off a closed section and Enter opens only a visible row", () => {
+    const groups = groupSubagents(children);
+    const open = visibleSubagents(groups, { expanded: true, showCompleted: true, showErrors: true });
+    expect(selectionTarget(open, "done", 1)?.id).toBe("done");
+    const closed = visibleSubagents(groups, { expanded: true, showCompleted: false, showErrors: true });
+    expect(selectionTarget(closed, "done", 1)?.id).toBe("error");
+    expect(moveSelection(closed, "done", 1, -1)?.id).toBe("run");
+  });
+
+  it("cannot open a just-finished run when its destination section is closed", () => {
+    const finished = [{ id: "run", outcome: "succeeded" as const }];
+    const visible = visibleSubagents(groupSubagents(finished), { expanded: true, showCompleted: false });
+    expect(selectionTarget(visible, "run", 0)).toBeUndefined();
+    expect(moveSelection(visible, "run", 0, 1)).toBeUndefined();
   });
 });

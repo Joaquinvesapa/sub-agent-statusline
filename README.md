@@ -77,13 +77,30 @@ Subagent Monitor restores that visibility inside OpenCode, so you can keep worki
 The sidebar shows:
 
 - running subagents;
-- recent completed subagents;
-- failed subagents;
+- completed subagents in an independently expandable **History** section;
+- failed or interrupted subagents in an independently expandable **Errors** section;
 - elapsed time;
 - token/context usage when available;
 - the model each subagent runs on, with its variant when one is set (for example `Claude Opus · high`).
 
 When subagent activity is active, the plugin also adds a compact summary to the home/footer area.
+
+Running subagents stay visible while the monitor is expanded. **History** and **Errors**
+start collapsed for new installations; click either heading to show or hide its rows.
+Both sections can be open at once, and their counters remain visible when closed.
+Existing saved history visibility is preserved, and each section remembers its visibility.
+The original `● 0 run · ✓ 0 done · ✕ 0 err` summary stays visible, including when
+the monitor is collapsed. Its done count includes successful outcomes only; the
+History section count also includes sessions with unknown outcomes.
+
+When a subagent finishes, it moves out of Running into History or Errors automatically.
+History includes idle sessions whose outcome is unknown, labelled **Outcome unknown**
+rather than successful. Errors distinguish **Failed** from **Interrupted** runs. Sessions
+with unconfirmed activity appear separately under **No recent activity**, not in the
+running count. Empty open sections show an explanatory message.
+
+History is a view of the sessions available from OpenCode, not a separate permanent
+archive. Collapsing a section does not archive or delete any session.
 
 ## Built with Gentle AI
 
@@ -113,7 +130,8 @@ Run `Toggle subagent list focus` from the OpenCode command palette, or press `<l
 | `j` | Move selection to the next visible subagent. |
 | `k` | Move selection to the previous visible subagent. |
 | `Enter` | Open the selected subagent session. |
-| `c` | Toggle retained completed history in the sidebar. |
+| `c` | Show or hide the History section. |
+| `e` | Show or hide the Errors section. |
 | `h` | Collapse the subagent section. |
 | `l` | Expand the subagent section. |
 | `Esc` | Leave list focus mode and return to the prompt. |
@@ -129,7 +147,8 @@ These entries work without focusing the list first:
 | Palette entry | Action |
 | --- | --- |
 | `Toggle subagent list focus` | Same as `<leader>z`. |
-| `Subagents: Toggle completed history` | Show or hide completed subagents beyond the most recent ones. |
+| `Subagents: Toggle completed history` | Show or hide History, including sessions with unknown outcomes. |
+| `Subagents: Toggle errors` | Show or hide failed and interrupted subagents. |
 | `Subagents: Toggle monitor` | Collapse or expand the subagent list, like clicking its header. |
 
 The entries are available on the session screen, where the sidebar is mounted.
@@ -139,6 +158,7 @@ The entries are available on the session screen, where the sidebar is mounted.
 - Click a subagent row to open its session.
 - Hovering a row highlights it; the `›` cursor marker stays on the keyboard selection.
 - Click the `Subagents` header to collapse or expand the list.
+- Click `History` or `Errors` to independently expand or collapse that section.
 
 Mouse support is on by default in OpenCode 2; no `cli.json` setting is needed. Terminals only deliver mouse events while their window has focus, so hover does not react over an unfocused window. Clicking still works, because the click focuses the window first.
 
