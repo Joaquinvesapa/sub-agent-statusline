@@ -15,6 +15,8 @@ vi.mock("@opentui/solid/jsx-dev-runtime", () => ({
 
 vi.mock("solid-js", async (importOriginal) => ({
   ...await importOriginal<typeof import("solid-js")>(),
+  // This harness uses plain prefs, not reactive storage; recompute on each read.
+  createMemo: (compute: () => unknown) => compute,
   createEffect: () => {},
   onCleanup: () => {},
 }));
@@ -23,7 +25,10 @@ async function mountMonitor() {
   vi.resetModules();
   const layers: Array<() => KeymapLayer> = [];
   const slots: any[] = [];
-  const prefs = { expanded: true, showCompleted: false };
+  // Old saved preferences have no showErrors field.
+  const prefs: { expanded: boolean; showCompleted: boolean; showErrors?: boolean } = {
+    expanded: true, showCompleted: false,
+  };
   const navigate = vi.fn();
   host.context = {
     storage: {
@@ -72,11 +77,13 @@ describe("V2 monitor keyboard registration", () => {
   it("keeps palette actions available without list focus", async () => {
     const monitor = await mountMonitor();
     const commands = monitor.global().commands!;
-    expect(commands.filter((command) => command.palette)).toHaveLength(3);
-    expect(commands.filter((command) => command.bind === false)).toHaveLength(2);
+    expect(commands.filter((command) => command.palette)).toHaveLength(4);
+    expect(commands.filter((command) => command.bind === false)).toHaveLength(3);
     expect(monitor.enabled()).toBe(false);
     commands.find((command) => command.id?.endsWith(".palette.history"))!.run();
     expect(monitor.prefs.showCompleted).toBe(true);
+    commands.find((command) => command.id?.endsWith(".palette.errors"))!.run();
+    expect(monitor.prefs.showErrors).toBe(true);
     commands.find((command) => command.id?.endsWith(".palette.monitor"))!.run();
     expect(monitor.prefs.expanded).toBe(false);
     expect(monitor.enabled()).toBe(false);
@@ -87,7 +94,7 @@ describe("V2 monitor keyboard registration", () => {
     const monitor = await mountMonitor();
     expect(monitor.list().mode).toBeUndefined();
     expect(monitor.list().commands!.map((command) => command.bind).sort())
-      .toEqual(["c", "enter", "escape", "h", "j", "k", "l"]);
+      .toEqual(["c", "e", "enter", "escape", "h", "j", "k", "l"]);
     expect(monitor.enabled()).toBe(false);
     for (const command of monitor.list().commands!) expect(command.run()).toBe(false);
     expect(monitor.prefs).toEqual({ expanded: true, showCompleted: false });
@@ -102,10 +109,17 @@ describe("V2 monitor keyboard registration", () => {
     expect(monitor.navigate).toHaveBeenCalledExactlyOnceWith({ type: "session", sessionID: "child" });
     run("h");
     expect(monitor.prefs.expanded).toBe(false);
+    monitor.navigate.mockClear();
+    run("enter");
+    expect(monitor.navigate).not.toHaveBeenCalled();
     run("l");
     expect(monitor.prefs.expanded).toBe(true);
     run("c");
     expect(monitor.prefs.showCompleted).toBe(true);
+    run("e");
+    expect(monitor.prefs.showErrors).toBe(true);
+    run("e");
+    expect(monitor.prefs.showErrors).toBe(false);
     run("escape");
     expect(monitor.enabled()).toBe(false);
     monitor.toggle();

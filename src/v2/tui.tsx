@@ -38,7 +38,9 @@ import {
   byPriority,
   deriveStatus,
   isBusy,
-  maxCandidates,
+  groupSubagents,
+  visibleSubagents,
+  type SidebarVisibility,
   type V2LiveStatus,
   type V2Session,
 } from "./reconcile.js";
@@ -56,14 +58,10 @@ import { THEME_TOKENS, resolveColor } from "./theme.js";
 // at an arbitrary column.
 const REFRESH_COALESCE_MS = 200;
 const ELAPSED_TICK_MS = 1000;
-const MAX_DONE_ROWS = 3;
 
 type MonitorContext = ReturnType<typeof usePlugin>;
 
-interface Prefs {
-  expanded: boolean;
-  showCompleted: boolean;
-}
+type Prefs = SidebarVisibility;
 
 interface MonitorState {
   context: MonitorContext | null;
@@ -234,6 +232,12 @@ function toggleCompleted(): void {
   });
 }
 
+function toggleErrors(): void {
+  mutatePrefs((draft) => {
+    draft.showErrors = !draft.showErrors;
+  });
+}
+
 // --- keymap layers (must be owned by a component, not by setup) ---
 
 // Reachable in every input mode, including while a dialog such as the command
@@ -260,6 +264,14 @@ function globalCommands(): KeymapCommand[] {
       bind: false,
       palette: true,
       run: toggleCompleted,
+    },
+    {
+      id: `${PLUGIN_ID}.palette.errors`,
+      title: "Subagents: Toggle errors",
+      group: "Subagents",
+      bind: false,
+      palette: true,
+      run: toggleErrors,
     },
     {
       id: `${PLUGIN_ID}.palette.monitor`,
@@ -317,6 +329,16 @@ function listCommands(
       run: () => {
         if (!focused()) return false;
         toggleCompleted();
+      },
+    },
+    {
+      id: `${PLUGIN_ID}.errors`,
+      title: "Toggle subagent errors",
+      group: "Subagents",
+      bind: "e",
+      run: () => {
+        if (!focused()) return false;
+        toggleErrors();
       },
     },
     {
@@ -385,8 +407,14 @@ function SidebarSubagents(props: { sessionID: string }) {
   const context = usePlugin();
 
   const items = createMemo(() => childrenOf(props.sessionID));
+  const [now, setNow] = createSignal(Date.now());
+  const groups = createMemo(() => groupSubagents(items(), now()));
   const visible = createMemo(() =>
-    maxCandidates(items(), state.prefs?.showCompleted ?? false, MAX_DONE_ROWS),
+    visibleSubagents(groups(), {
+      expanded: state.prefs?.expanded ?? true,
+      showCompleted: state.prefs?.showCompleted ?? false,
+      showErrors: state.prefs?.showErrors ?? false,
+    }),
   );
 
   useKeymapLayer(context, visible);
@@ -404,7 +432,6 @@ function SidebarSubagents(props: { sessionID: string }) {
     requestRefresh();
   });
 
-  const [now, setNow] = createSignal(Date.now());
   createEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), ELAPSED_TICK_MS);
     onCleanup(() => clearInterval(timer));
@@ -425,33 +452,6 @@ function SidebarSubagents(props: { sessionID: string }) {
     if (row.id !== untrack(selectedID)) setSelectedID(row.id);
   });
 
-  const counts = createMemo(() => {
-    let running = 0;
-    let stale = 0;
-    let done = 0;
-    let failed = 0;
-    for (const session of items()) {
-      switch (deriveStatus(session)) {
-        case "done":
-          done += 1;
-          break;
-        case "error":
-          failed += 1;
-          break;
-        case "stale":
-          stale += 1;
-          break;
-        case "running":
-          running += 1;
-          break;
-        default:
-          // `unknown`: finished without a recorded outcome; not counted.
-          break;
-      }
-    }
-    return { running, stale, done, failed };
-  });
-
   const headerColor = () => themeColor("header");
   const subdued = () => themeColor("muted");
   const selected = () => themeColor("selected");
@@ -459,6 +459,31 @@ function SidebarSubagents(props: { sessionID: string }) {
   const doneColor = () => themeColor("done");
   const failedColor = () => themeColor("error");
   const staleColor = () => themeColor("stale");
+  // Keep the original summary: unknown outcomes belong to History, not done.
+  const doneCount = createMemo(() =>
+    groups().history.filter((session) => deriveStatus(session) === "done").length,
+  );
+  // Stable section identities keep rows mounted while elapsed time ticks.
+  const sections = [
+    {
+      label: "Running", rows: () => groups().running, open: () => true,
+      toggle: undefined, shortcut: "", empty: "No subagents running", color: runningColor,
+    },
+    {
+      label: "No recent activity", rows: () => groups().stale, open: () => true,
+      toggle: undefined, shortcut: "", empty: "", color: staleColor,
+    },
+    {
+      label: "History", rows: () => groups().history,
+      open: () => state.prefs?.showCompleted ?? false,
+      toggle: toggleCompleted, shortcut: "c", empty: "No subagent history", color: headerColor,
+    },
+    {
+      label: "Errors", rows: () => groups().errors,
+      open: () => state.prefs?.showErrors ?? false,
+      toggle: toggleErrors, shortcut: "e", empty: "No subagent errors", color: failedColor,
+    },
+  ];
 
   // Always rendered, even with zero subagents: the monitor keeps a visible
   // sidebar presence and the counters stay readable at a glance.
@@ -475,77 +500,113 @@ function SidebarSubagents(props: { sessionID: string }) {
         </Show>
       </box>
       <box flexDirection="row">
-        <text fg={runningColor()}>{`● ${counts().running} run`}</text>
+        <text fg={runningColor()}>{`● ${groups().running.length} run`}</text>
         <text fg={subdued()}>{" · "}</text>
-        <text fg={doneColor()}>{`✓ ${counts().done} done`}</text>
+        <text fg={doneColor()}>{`✓ ${doneCount()} done`}</text>
         <text fg={subdued()}>{" · "}</text>
-        <text fg={failedColor()}>{`✕ ${counts().failed} err`}</text>
+        <text fg={failedColor()}>{`✕ ${groups().errors.length} err`}</text>
       </box>
-      <Show when={counts().stale > 0}>
-        <text fg={staleColor()}>{`◐ ${counts().stale} stale`}</text>
+      <Show when={groups().stale.length > 0}>
+        <text fg={staleColor()}>{`◐ ${groups().stale.length} no recent activity`}</text>
       </Show>
       <Show when={state.prefs?.expanded}>
-        <For each={visible()}>
-          {(item, i) => {
-            const labelLines = () => wrapLabel(labelFor(item), LABEL_WIDTH, 2);
-            const model = () => modelLine(item);
-            const isCursor = () => focused() && cursorIndex() === i();
-            // Hover brightens the row; only the keyboard cursor gets the marker.
-            const isActive = () => isCursor() || hoveredID() === item.id;
-            return (
-              <box
-                flexDirection="column"
-                onMouseOver={() => setHoveredID(item.id)}
-                onMouseOut={() => {
-                  if (untrack(hoveredID) === item.id) setHoveredID(undefined);
-                  if (pressedID === item.id) pressedID = undefined;
-                }}
-                onMouseDown={(event: MouseEvent) => {
-                  event.stopPropagation();
-                  pressedID = item.id;
-                  setSelectedID(item.id);
-                  setLastIndex(i());
-                }}
-                onMouseUp={(event: MouseEvent) => {
-                  const opens = pressedID === item.id;
-                  pressedID = undefined;
-                  if (!opens) return;
-                  event.stopPropagation();
-                  context.ui.router.navigate({
-                    type: "session",
-                    sessionID: item.id,
-                  });
-                }}
-              >
-                <box flexDirection="row">
-                  <text fg={isCursor() ? selected() : subdued()}>
-                    {isCursor() ? CURSOR_MARKER : " "}
-                  </text>
-                  <text fg={fgFor(item)}>{`${statusMarker(item)} `}</text>
-                  <text fg={isActive() ? headerColor() : fgFor(item)}>
-                    {labelLines()[0] ?? ""}
-                  </text>
-                </box>
-                <Show when={(labelLines()[1] ?? "") !== ""}>
-                  <text fg={isActive() ? headerColor() : fgFor(item)}>
-                    {`${LABEL_INDENT}${labelLines()[1]}`}
-                  </text>
-                </Show>
-                <text fg={isActive() ? headerColor() : subdued()}>
-                  {metaFor(item, now())}
+        <For each={sections}>{(section) => (
+          <Show when={section.toggle || section.rows().length > 0 || section.empty}>
+            <box flexDirection="column" marginTop={1}>
+              <box onMouseDown={(event: MouseEvent) => {
+                event.stopPropagation();
+                pressedID = undefined;
+                section.toggle?.();
+              }}>
+                <text fg={section.color()}>
+                  {`${section.toggle ? `${section.open() ? SIDEBAR_ARROW_EXPANDED : SIDEBAR_ARROW_COLLAPSED} ` : ""}${section.label} (${section.rows().length})${section.shortcut ? ` [${section.shortcut}]` : ""}`}
                 </text>
-                <Show when={model()}>
-                  <text fg={isActive() ? headerColor() : subdued()}>
-                    {model()}
-                  </text>
-                </Show>
               </box>
-            );
-          }}
-        </For>
+              <Show when={section.open()}>
+                <Show when={section.rows().length === 0}>
+                  <text fg={subdued()}>{section.empty}</text>
+                </Show>
+                <For each={section.rows()}>
+                  {(item) => {
+                    const labelLines = () => wrapLabel(labelFor(item), LABEL_WIDTH, 2);
+                    const model = () => modelLine(item);
+                    const isCursor = () =>
+                      focused() && visible()[cursorIndex()]?.id === item.id;
+                    const outcomeLabel = () => {
+                      if (item.outcome === "interrupted") return "Interrupted";
+                      if (item.outcome === "failed") return "Failed";
+                      if (deriveStatus(item, now()) === "unknown") return "Outcome unknown";
+                      return undefined;
+                    };
+                    // Hover brightens the row; only the keyboard cursor gets the marker.
+                    const isActive = () => isCursor() || hoveredID() === item.id;
+                    onCleanup(() => {
+                      if (untrack(hoveredID) === item.id) setHoveredID(undefined);
+                      if (pressedID === item.id) pressedID = undefined;
+                    });
+                    return (
+                      <box
+                        flexDirection="column"
+                        onMouseOver={() => setHoveredID(item.id)}
+                        onMouseOut={() => {
+                          if (untrack(hoveredID) === item.id) setHoveredID(undefined);
+                          if (pressedID === item.id) pressedID = undefined;
+                        }}
+                        onMouseDown={(event: MouseEvent) => {
+                          event.stopPropagation();
+                          pressedID = item.id;
+                          setSelectedID(item.id);
+                          setLastIndex(visible().findIndex((row) => row.id === item.id));
+                        }}
+                        onMouseUp={(event: MouseEvent) => {
+                          const opens = pressedID === item.id;
+                          pressedID = undefined;
+                          if (!opens) return;
+                          event.stopPropagation();
+                          context.ui.router.navigate({
+                            type: "session",
+                            sessionID: item.id,
+                          });
+                        }}
+                      >
+                        <box flexDirection="row">
+                          <text fg={isCursor() ? selected() : subdued()}>
+                            {isCursor() ? CURSOR_MARKER : " "}
+                          </text>
+                          <text fg={fgFor(item)}>{`${statusMarker(item)} `}</text>
+                          <text fg={isActive() ? headerColor() : fgFor(item)}>
+                            {labelLines()[0] ?? ""}
+                          </text>
+                        </box>
+                        <Show when={(labelLines()[1] ?? "") !== ""}>
+                          <text fg={isActive() ? headerColor() : fgFor(item)}>
+                            {`${LABEL_INDENT}${labelLines()[1]}`}
+                          </text>
+                        </Show>
+                        <text fg={isActive() ? headerColor() : subdued()}>
+                          {metaFor(item, now())}
+                        </text>
+                        <Show when={outcomeLabel()}>
+                          <text fg={fgFor(item)}>
+                            {`${LABEL_INDENT}${outcomeLabel()}`}
+                          </text>
+                        </Show>
+                        <Show when={model()}>
+                          <text fg={isActive() ? headerColor() : subdued()}>
+                            {model()}
+                          </text>
+                        </Show>
+                      </box>
+                    );
+                  }}
+                </For>
+              </Show>
+            </box>
+          </Show>
+        )}</For>
       </Show>
       <Show when={focused()}>
-        <text fg={subdued()}>{"j/k · enter · c · h/l · esc"}</text>
+        <text fg={subdued()}>{"j/k · enter · c/e · h/l · esc"}</text>
       </Show>
     </box>
   );
@@ -586,7 +647,7 @@ export default Plugin.define({
     state.context = context;
 
     const [prefs, setPrefs] = context.storage.store<Prefs>("prefs", {
-      initial: { expanded: true, showCompleted: false },
+      initial: { expanded: true, showCompleted: false, showErrors: false },
     });
     state.prefs = prefs;
     state.setPrefs = setPrefs;

@@ -19,6 +19,8 @@ Deep TUI and full OpenCode host end-to-end automation are intentionally deferred
 | `src/state.test.ts`               | State invariants, counters, transitions, pruning, persistence helpers, environment path resolution, and detail merging.                                            |
 | `src/render.test.ts`              | Statusline rendering, visibility rules, collapse behavior, duration/token formatting, and color/no-color output semantics.                                         |
 | `src/text-width.test.ts`          | Terminal column width helpers for CJK/full-width text, combining marks, and truncation within display budgets.                                                     |
+| `src/v2/reconcile.test.ts`        | V2 status derivation, section grouping, independent history/error visibility, old preference compatibility, and completion transitions. |
+| `src/v2/selection.test.ts`        | Stable cursor selection, closing sections, and preventing navigation to hidden or just-finished rows. |
 | `test/index.integration.test.ts`  | Runtime plugin initialization, event handling, `state.json` persistence, `status.txt` writes, preserve-state behavior, malformed events, and write-failure safety. |
 | `test/helpers/runtime-harness.ts` | Reusable helpers for temp dirs, env overrides, fixtures, filesystem assertions, and fake-time setup.                                                               |
 | `test/setup.ts`                   | Global cleanup after each test: timers, mocks, selected env vars, and registered temp directories.                                                                 |

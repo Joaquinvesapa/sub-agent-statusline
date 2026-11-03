@@ -4,8 +4,7 @@
  * V2 session rows expose `time.{created,updated,idle}` as raw epoch millis
  * and an optional `outcome` (`succeeded | failed | interrupted`) recorded at
  * `time.idle`. This module derives the monitor status, the sort priority and
- * the candidate cap used by the `./tui` entrypoint, ported from the V1
- * reconcile/render behavior.
+ * the sidebar groups used by the `./tui` entrypoint.
  *
  * `outcome` is not always present (legacy rows, killed runs, older hosts), so
  * the host's live status (`context.data.session.status`) decides whether an
@@ -90,11 +89,6 @@ export function isBusy(session: V2Session, now = Date.now()): boolean {
   return deriveStatus(session, now) === "running";
 }
 
-/** Terminal rows share the done cap when completed history is hidden. */
-function isTerminal(status: SubagentStatus): boolean {
-  return status === "done" || status === "unknown";
-}
-
 const STATUS_PRIORITY: Record<SubagentStatus, number> = {
   running: 0,
   stale: 1,
@@ -119,19 +113,45 @@ export function byPriority(
   return (b.time?.updated ?? 0) - (a.time?.updated ?? 0);
 }
 
-/**
- * When completed history is hidden, keep every active candidate and cap the
- * done rows at `maxDone` so the sidebar stays compact.
- */
-export function maxCandidates(
+export interface SubagentGroups {
+  running: V2Session[];
+  stale: V2Session[];
+  history: V2Session[];
+  errors: V2Session[];
+}
+
+export interface SidebarVisibility {
+  expanded: boolean;
+  showCompleted: boolean;
+  // Optional for preferences saved before the error section existed.
+  showErrors?: boolean;
+}
+
+/** Preserve input order and classify once for both rows and counters. */
+export function groupSubagents(
   items: V2Session[],
-  showCompleted: boolean,
-  maxDone = 3,
+  now = Date.now(),
+): SubagentGroups {
+  const groups: SubagentGroups = { running: [], stale: [], history: [], errors: [] };
+  for (const session of items) {
+    const status = deriveStatus(session, now);
+    if (status === "done" || status === "unknown") groups.history.push(session);
+    else if (status === "error") groups.errors.push(session);
+    else groups[status].push(session);
+  }
+  return groups;
+}
+
+/** Keyboard targets must match the displayed sections, in display order. */
+export function visibleSubagents(
+  groups: SubagentGroups,
+  prefs: SidebarVisibility,
 ): V2Session[] {
-  if (showCompleted) return items;
-  const active = items.filter((session) => !isTerminal(deriveStatus(session)));
-  const completed = items.filter((session) =>
-    isTerminal(deriveStatus(session)),
-  );
-  return [...active, ...completed.slice(0, maxDone)];
+  if (!prefs.expanded) return [];
+  return [
+    ...groups.running,
+    ...groups.stale,
+    ...(prefs.showCompleted ? groups.history : []),
+    ...(prefs.showErrors ? groups.errors : []),
+  ];
 }
