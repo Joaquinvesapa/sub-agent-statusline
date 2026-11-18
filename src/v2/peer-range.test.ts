@@ -36,9 +36,10 @@ async function peerDependencies(): Promise<Record<string, string>> {
 }
 
 describe("OpenTUI peer ranges", () => {
-  // OpenCode 2.0.x ships OpenTUI 0.5.x, @opencode/plugin 2.2.0 pins 0.7.0 and
-  // 2.2.5 requires >=0.8.0 (npm resolves 0.8.1). See issue #118.
-  const hostVersions = ["0.5.10", "0.6.8", "0.7.0", "0.8.0", "0.8.1"];
+  // OpenCode 2.0.x ships OpenTUI 0.5.x, @opencode/plugin 2.2.0 pins 0.7.0,
+  // 2.2.5 requires >=0.8.0 (npm resolves 0.8.1) and 2.3.x resolves 0.9.2.
+  // See issues #118 and #123.
+  const hostVersions = ["0.5.10", "0.6.8", "0.7.0", "0.8.0", "0.8.1", "0.9.0", "0.9.2"];
 
   for (const name of ["@opentui/core", "@opentui/solid"]) {
     it(`${name} accepts every OpenTUI version shipped by OpenCode 2 hosts`, async () => {
@@ -50,7 +51,7 @@ describe("OpenTUI peer ranges", () => {
 
     it(`${name} keeps an upper bound below the next untested minor`, async () => {
       const range = (await peerDependencies())[name]!;
-      expect(satisfies("0.9.0", range)).toBe(false);
+      expect(satisfies("0.10.0", range)).toBe(false);
       expect(satisfies("0.4.9", range)).toBe(false);
     });
   }
